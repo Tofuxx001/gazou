@@ -177,17 +177,15 @@ export default function CardMaker() {
     setLayers((prev) => {
       const oldIndex = prev.findIndex((l) => l.id === active.id);
       const newIndex = prev.findIndex((l) => l.id === over.id);
-      const newArr = [...prev];
-      const [moved] = newArr.splice(oldIndex, 1);
-      newArr.splice(newIndex, 0, moved);
+      const updated = [...prev];
+      const [moved] = updated.splice(oldIndex, 1);
+      updated.splice(newIndex, 0, moved);
 
-      // zIndexを上から順に再設定（後ろが下）
-      const zUpdated = newArr.map((layer, i, arr) => ({
+      // zIndexはそのまま、配列順に付け直す
+      return updated.map((layer, index) => ({
         ...layer,
-        zIndex: arr.length - i,
+        zIndex: index,
       }));
-
-      return zUpdated;
     });
   };
   //これはレイヤー描画
