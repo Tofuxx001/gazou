@@ -38,6 +38,54 @@ export default function CardMaker() {
     // メモリ解放
     URL.revokeObjectURL(url);
   }
+  //セーブ
+  function saveCardDataAsJSON() {
+    const data = {
+      canvasData,
+      baseData,
+      layers,
+      tableRows, // ← 各 row に cardId 含まれている
+    };
+
+    const blob = new Blob([JSON.stringify(data, null, 2)], {
+      type: "application/json",
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "card_table_state.json";
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function loadCardDataFromJSON(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const json = JSON.parse(reader.result as string);
+        if (
+          json.canvasData &&
+          json.baseData &&
+          Array.isArray(json.layers) &&
+          Array.isArray(json.tableRows)
+        ) {
+          setCanvasData(json.canvasData);
+          setBaseData(json.baseData);
+          setLayers(json.layers);
+          setTableRows(json.tableRows);
+        } else {
+          alert("ファイル形式が正しくありません");
+        }
+      } catch (e) {
+        alert("JSONの読み込みに失敗しました");
+      }
+    };
+
+    reader.readAsText(file);
+  }
 
   //以下変数用変数
 
@@ -78,9 +126,14 @@ export default function CardMaker() {
   };
   //表用
   type TableRow = {
-    id: string;
-    values: Record<string, string>; // title => value マッピング
+    id: number;
+    name?: string;
+    values: Record<string, string>;
+    layersSnapshot: Layer[];
+    canvasSnapshot: typeof canvasData;
+    baseSnapshot: typeof baseData;
   };
+
   const [tableRows, setTableRows] = useState<TableRow[]>([]);
   const [layers, setLayers] = useState<Layer[]>([]);
   //表用
@@ -155,11 +208,13 @@ export default function CardMaker() {
   //以下カード用変数
   //
   const [canvasData, setCanvasData] = useState<{
+    cardID: number;
     width: number;
     height: number;
     bgColor: Color;
     radius: number;
   }>({
+    cardID: -1,
     width: 300,
     height: 200,
     bgColor: color,
@@ -895,6 +950,7 @@ export default function CardMaker() {
           }}
         />
         <div id="TextEditor" className="m-3 border-1 rounded-xl p-2 ">
+          <h1>編集中のカード名：{}</h1>
           <Tabs.Root defaultValue="Text" className="">
             <Tabs.List className=" flex gap-2 mb-2">
               <Tabs.Trigger value="Text">タイトル</Tabs.Trigger>
@@ -979,7 +1035,7 @@ export default function CardMaker() {
                     const newLayer: Layer = {
                       id: nextId,
                       type: "text",
-                      title: `レイヤー${savedCards.length + 1}`,
+                      title: `レイヤー${layers.length + 1}`,
                       value: "",
                       zIndex: maxZ + 1,
                       fontStyle: "normal",
@@ -1002,66 +1058,79 @@ export default function CardMaker() {
                 + レイヤー追加
               </button>
               <button
-                onClick={() => {
-                  const nextId = `${Date.now()}`;
-                  const maxZ = Math.max(...layers.map((l) => l.zIndex), 0);
-                  const newImageLayer: Layer = {
-                    id: nextId,
-                    type: "image",
-                    title: `レイヤー${savedCards.length + 1}`,
-                    value: "", // 空の状態（画像未設定）
-                    zIndex: maxZ + 1,
-                    fontStyle: "normal",
-                    fontSize: 20,
-                    fontColor: "#000000",
-                    fontOutline: "#000000",
-                    PositionPreset: "center",
-                    positionAdjX: 0,
-                    positionAdjY: 0,
-                    backGround: false,
-                    textPadding: 0,
-                    bgColor: "#ffffff",
-                    bgOpacity: 1,
-                    bgRadius: 0,
-                  };
-                  setLayers((prev) => [...prev, newImageLayer]);
-                }}
-                className="bg-green-500 text-white px-4 py-1 rounded">
-                + 画像レイヤー追加
-              </button>
-              <button
                 onClick={async () => {
-                  await SaveCard(); // ← まずキャンバス画像を保存
-                  const newId = `${Date.now()}`;
+                  await SaveCard();
+
+                  const existingId = canvasData.cardID;
+
                   const currentValues = Object.fromEntries(
                     layers
                       .filter((l) => l.type === "text")
                       .map((l) => [l.title, l.value])
                   );
 
-                  const existingIndex = tableRows.findIndex(
-                    (r) => r.id === newId
-                  );
-
-                  const newRow: TableRow = {
-                    id: newId,
+                  const updatedRow: TableRow = {
+                    id: existingId,
+                    name: `カード${tableRows.length + 1}`, // 必要なら元の名前を保持してもOK
                     values: currentValues,
+                    layersSnapshot: JSON.parse(JSON.stringify(layers)),
+                    canvasSnapshot: JSON.parse(JSON.stringify(canvasData)),
+                    baseSnapshot: JSON.parse(JSON.stringify(baseData)),
                   };
 
                   setTableRows((prev) => {
-                    if (existingIndex !== -1) {
-                      // 上書き
+                    const index = prev.findIndex((r) => r.id === existingId);
+                    if (index !== -1) {
                       const updated = [...prev];
-                      updated[existingIndex] = newRow;
+                      updated[index] = updatedRow;
                       return updated;
                     } else {
-                      // 追加
-                      return [...prev, newRow];
+                      console.warn("上書き対象のカードIDが見つかりません");
+                      return prev;
                     }
                   });
                 }}
                 className="mt-2 ml-2 bg-green-600 text-white px-3 py-1 rounded">
-                <Save />
+                上書き保存
+              </button>
+              <button
+                onClick={async () => {
+                  await SaveCard();
+
+                  // 最大のIDを調べて +1（0スタートで連番管理するスタイル）
+                  const nextId =
+                    tableRows.reduce(
+                      (max, row) => Math.max(max, Number(row.id)),
+                      0
+                    ) + 1;
+
+                  // canvasData にも新しい cardID をセット
+                  setCanvasData((prev) => ({ ...prev, cardID: nextId }));
+
+                  const currentValues = Object.fromEntries(
+                    layers
+                      .filter((l) => l.type === "text")
+                      .map((l) => [l.title, l.value])
+                  );
+
+                  const newRow: TableRow = {
+                    id: nextId,
+                    name: `カード${tableRows.length + 1}`,
+                    values: currentValues,
+                    layersSnapshot: JSON.parse(JSON.stringify(layers)),
+                    canvasSnapshot: JSON.parse(
+                      JSON.stringify({
+                        ...canvasData,
+                        cardID: nextId,
+                      })
+                    ),
+                    baseSnapshot: JSON.parse(JSON.stringify(baseData)),
+                  };
+
+                  setTableRows((prev) => [...prev, newRow]);
+                }}
+                className="mt-2 ml-2 bg-blue-600 text-white px-3 py-1 rounded">
+                新規保存
               </button>
             </Tabs.Content>
           </Tabs.Root>
@@ -1089,17 +1158,10 @@ export default function CardMaker() {
                 <td>
                   <button
                     onClick={() => {
-                      // values を元に、各 title に対応するレイヤーの value を更新
-                      const updatedLayers = layers.map((layer) => {
-                        if (
-                          layer.type === "text" &&
-                          row.values[layer.title] !== undefined
-                        ) {
-                          return { ...layer, value: row.values[layer.title] };
-                        }
-                        return layer;
-                      });
-                      setLayers(updatedLayers);
+                      const matchedRow = tableRows[rowIndex];
+                      setCanvasData(matchedRow.canvasSnapshot);
+                      setBaseData(matchedRow.baseSnapshot);
+                      setLayers(matchedRow.layersSnapshot);
                     }}
                     className="text-blue-600 hover:text-blue-800 mr-2">
                     <FilePen />
@@ -1124,6 +1186,16 @@ export default function CardMaker() {
                       />
                     </td>
                   ))}
+                <td>
+                  <input
+                    value={row.id}
+                    onChange={(e) => {
+                      const updatedRows = [...tableRows];
+                      updatedRows[rowIndex].id = Number(e.target.value);
+                      setTableRows(updatedRows);
+                    }}
+                  />
+                </td>
                 <td className="border border-gray-300 px-2 py-1 text-center">
                   <button
                     onClick={() =>
@@ -1139,6 +1211,22 @@ export default function CardMaker() {
             ))}
           </tbody>
         </table>
+        <div className="flex gap-2 mt-4">
+          <button
+            onClick={saveCardDataAsJSON}
+            className="bg-indigo-500 text-white px-4 py-2 rounded">
+            JSON保存
+          </button>
+          <label className="bg-gray-200 px-4 py-2 rounded cursor-pointer">
+            JSON読み込み
+            <input
+              type="file"
+              accept="application/json"
+              onChange={loadCardDataFromJSON}
+              className="hidden"
+            />
+          </label>
+        </div>
       </div>
     </>
   );
