@@ -2,27 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import puppeteer from "puppeteer"; // or puppeteer-core
 
 export async function POST(req: NextRequest) {
-    console.log("🟢 API HIT");
-
-    const browser = await puppeteer.launch({
-        headless: "new",
-        args: ["--no-sandbox", "--disable-setuid-sandbox"],
-        executablePath: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", // ✅ ←これが重要
-      });
     
-      const page = await browser.newPage();
-      await page.setContent("<div style='width:300px;height:200px;background:red;color:white;'>テスト</div>");
-      const buffer = await page.screenshot();
-      await browser.close();
-    
-      return new NextResponse(buffer, {
-        headers: {
-          "Content-Type": "image/png",
-          "Content-Disposition": 'attachment; filename="test.png"',
-        },
-      });
-  
-    /*
   const { html, width, height } = await req.json();
 
   if (!html || !width || !height) {
@@ -76,5 +56,4 @@ export async function POST(req: NextRequest) {
   } finally {
     await browser.close();
   }
-    */
 }
