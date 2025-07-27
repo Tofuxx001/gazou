@@ -2,6 +2,7 @@
 import { useState, useRef, useEffect } from "react";
 import { HexColorPicker } from "react-colorful";
 import { Tabs, TextArea, Slider, Switch, Select } from "@radix-ui/themes";
+
 import { Trash2, FilePen, Save } from "lucide-react";
 import {
   SortableContext,
@@ -163,7 +164,8 @@ export default function CardMaker() {
     base: typeof baseData;
     layers: Layer[];
   };
-  const [savedCards, setSavedCards] = useState<CardData[]>([]);
+  const [openLayerIds, setOpenLayerIds] = useState<Set<string>>(new Set());
+
   //以下基本処理用関数
   //これは不透明度管理で使う
   function hexToRGBA(hex: string, alpha: number): string {
@@ -1008,7 +1010,22 @@ export default function CardMaker() {
                   strategy={verticalListSortingStrategy}>
                   {layers.map((layer) => (
                     <SortableItem key={layer.id} id={layer.id}>
-                      <label className="flex items-center gap-2">
+                      {/* 表示スイッチと開閉トグル */}
+                      <div className="flex justify-between items-center mb-1">
+                        <input
+                          type="text"
+                          className="border px-2 py-1 rounded w-full"
+                          value={layer.title}
+                          onChange={(e) =>
+                            setLayers((prev) =>
+                              prev.map((l) =>
+                                l.id === layer.id
+                                  ? { ...l, title: e.target.value }
+                                  : l
+                              )
+                            )
+                          }
+                        />
                         <Switch
                           checked={layer.visible !== false}
                           onCheckedChange={(checked) =>
@@ -1021,97 +1038,104 @@ export default function CardMaker() {
                             )
                           }
                         />
-                        表示
-                      </label>
-                      <div className="flex gap-2 mt-2">
-                        <button
-                          onClick={() => setCopiedStyle({ ...layer })}
-                          className="bg-gray-200 text-sm px-2 py-1 rounded">
-                          スタイルコピー
-                        </button>
-                        <button
-                          disabled={!copiedStyle}
-                          onClick={() =>
-                            setLayers((prev) =>
-                              prev.map((l) =>
-                                l.id === layer.id
-                                  ? {
-                                      ...l,
-                                      ...copiedStyle,
-                                      id: l.id, // IDと値は上書きしない
-                                      title: l.title,
-                                      value: l.value,
-                                    }
-                                  : l
-                              )
-                            )
-                          }
-                          className="bg-blue-200 text-sm px-2 py-1 rounded disabled:opacity-50">
-                          スタイル貼り付け
-                        </button>
                       </div>
 
-                      <input
-                        type="text"
-                        className="border px-2 py-1 rounded w-full"
-                        value={layer.title}
-                        onChange={(e) =>
-                          setLayers((prev) =>
-                            prev.map((l) =>
-                              l.id === layer.id
-                                ? { ...l, title: e.target.value }
-                                : l
-                            )
-                          )
-                        }
-                      />
-
-                      {layer.type === "text" && (
-                        <TextArea
-                          placeholder="Reply to comment…"
-                          onChange={(e) =>
-                            setLayers((prev) =>
-                              prev.map((l) =>
-                                l.id === layer.id
-                                  ? { ...l, value: e.target.value }
-                                  : l
-                              )
-                            )
-                          }
-                        />
-                      )}
-                      {layer.type === "image" && (
-                        <input
-                          type="file"
-                          accept="image/*"
-                          onChange={(e) => {
-                            const file = e.target.files?.[0];
-                            if (!file) return;
-
-                            const reader = new FileReader();
-                            reader.onload = () => {
-                              const base64 = reader.result as string;
-                              setLayers((prev) =>
-                                prev.map((l) =>
-                                  l.id === layer.id
-                                    ? { ...l, value: base64 }
-                                    : l
-                                )
-                              );
-                            };
-                            reader.readAsDataURL(file);
-                          }}
-                        />
-                      )}
+                      {/* 折りたたみトグル */}
                       <button
-                        onClick={() =>
-                          setLayers((prev) =>
-                            prev.filter((l) => l.id !== layer.id)
-                          )
-                        }
-                        className="text-red-600 hover:text-red-800 ml-2 self-end">
-                        <Trash2 />
+                        onClick={() => {
+                          setOpenLayerIds((prev) => {
+                            const next = new Set(prev);
+                            next.has(layer.id)
+                              ? next.delete(layer.id)
+                              : next.add(layer.id);
+                            return next;
+                          });
+                        }}
+                        className="text-sm text-blue-600 hover:underline mb-1">
+                        {openLayerIds.has(layer.id) ? "▲ 閉じる" : "▼ 詳細設定"}
                       </button>
+
+                      {/* 詳細UIの中身はここに */}
+                      {openLayerIds.has(layer.id) && (
+                        <div className="bg-white border rounded p-2 space-y-2">
+                          {layer.type === "text" && (
+                            <TextArea
+                              placeholder="テキスト内容"
+                              value={layer.value}
+                              onChange={(e) =>
+                                setLayers((prev) =>
+                                  prev.map((l) =>
+                                    l.id === layer.id
+                                      ? { ...l, value: e.target.value }
+                                      : l
+                                  )
+                                )
+                              }
+                            />
+                          )}
+
+                          {layer.type === "image" && (
+                            <input
+                              type="file"
+                              accept="image/*"
+                              onChange={(e) => {
+                                const file = e.target.files?.[0];
+                                if (!file) return;
+
+                                const reader = new FileReader();
+                                reader.onload = () => {
+                                  const base64 = reader.result as string;
+                                  setLayers((prev) =>
+                                    prev.map((l) =>
+                                      l.id === layer.id
+                                        ? { ...l, value: base64 }
+                                        : l
+                                    )
+                                  );
+                                };
+                                reader.readAsDataURL(file);
+                              }}
+                            />
+                          )}
+
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => setCopiedStyle({ ...layer })}
+                              className="bg-gray-200 text-sm px-2 py-1 rounded">
+                              スタイルコピー
+                            </button>
+                            <button
+                              disabled={!copiedStyle}
+                              onClick={() =>
+                                setLayers((prev) =>
+                                  prev.map((l) =>
+                                    l.id === layer.id
+                                      ? {
+                                          ...l,
+                                          ...copiedStyle,
+                                          id: l.id,
+                                          title: l.title,
+                                          value: l.value,
+                                        }
+                                      : l
+                                  )
+                                )
+                              }
+                              className="bg-blue-200 text-sm px-2 py-1 rounded disabled:opacity-50">
+                              スタイル貼り付け
+                            </button>
+                            <button
+                              onClick={() =>
+                                setLayers((prev) =>
+                                  prev.filter((l) => l.id !== layer.id)
+                                )
+                              }
+                              className="text-red-600 hover:text-red-800 ml-auto">
+                              <Trash2 />
+                            </button>
+                          </div>
+                        </div>
+                      )}
                     </SortableItem>
                   ))}
                 </SortableContext>
