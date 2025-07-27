@@ -112,6 +112,7 @@ export default function CardMaker() {
     id: string;
     type: "text" | "image";
     title: string;
+    visible: boolean;
     value: string;
     zIndex: number;
     fontStyle: "thin" | "normal" | "Bold";
@@ -145,6 +146,7 @@ export default function CardMaker() {
   type TableRow = {
     id: number;
     name?: string;
+
     values: Record<string, string>;
     layersSnapshot: Layer[];
     canvasSnapshot: typeof canvasData;
@@ -319,6 +321,7 @@ export default function CardMaker() {
     baseH: number
   ) {
     layers
+      .filter((layer) => layer.visible !== false)
       .sort((a, b) => a.zIndex - b.zIndex)
       .forEach((layer) => {
         const [posX, posY] = getLayerPosition(
@@ -386,6 +389,7 @@ export default function CardMaker() {
         }
       });
   }
+  const [copiedStyle, setCopiedStyle] = useState<Partial<Layer> | null>(null);
   function getLayerPosition(
     preset: Layer["PositionPreset"],
     baseX: number,
@@ -1005,6 +1009,49 @@ export default function CardMaker() {
                   strategy={verticalListSortingStrategy}>
                   {layers.map((layer) => (
                     <SortableItem key={layer.id} id={layer.id}>
+                      <label className="flex items-center gap-2">
+                        <Switch
+                          checked={layer.visible !== false}
+                          onCheckedChange={(checked) =>
+                            setLayers((prev) =>
+                              prev.map((l) =>
+                                l.id === layer.id
+                                  ? { ...l, visible: checked }
+                                  : l
+                              )
+                            )
+                          }
+                        />
+                        表示
+                      </label>
+                      <div className="flex gap-2 mt-2">
+                        <button
+                          onClick={() => setCopiedStyle({ ...layer })}
+                          className="bg-gray-200 text-sm px-2 py-1 rounded">
+                          スタイルコピー
+                        </button>
+                        <button
+                          disabled={!copiedStyle}
+                          onClick={() =>
+                            setLayers((prev) =>
+                              prev.map((l) =>
+                                l.id === layer.id
+                                  ? {
+                                      ...l,
+                                      ...copiedStyle,
+                                      id: l.id, // IDと値は上書きしない
+                                      title: l.title,
+                                      value: l.value,
+                                    }
+                                  : l
+                              )
+                            )
+                          }
+                          className="bg-blue-200 text-sm px-2 py-1 rounded disabled:opacity-50">
+                          スタイル貼り付け
+                        </button>
+                      </div>
+
                       <input
                         type="text"
                         className="border px-2 py-1 rounded w-full"
@@ -1080,6 +1127,7 @@ export default function CardMaker() {
                       type: "text",
                       title: `レイヤー${layers.length + 1}`,
                       value: "",
+                      visible: true,
                       zIndex: maxZ + 1,
                       fontStyle: "normal",
                       fontSize: 20,
@@ -1110,6 +1158,7 @@ export default function CardMaker() {
                       type: "image",
                       title: `画像レイヤー${prev.length + 1}`,
                       value: "",
+                      visible: true,
                       zIndex: maxZ + 1,
                       fontStyle: "normal", // 使わないけど型のため一応
                       fontSize: 20,
