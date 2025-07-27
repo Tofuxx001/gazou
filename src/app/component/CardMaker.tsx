@@ -88,6 +88,23 @@ export default function CardMaker() {
   }
 
   //以下変数用変数
+  function drawRoundedRect(
+    ctx: CanvasRenderingContext2D,
+    x: number,
+    y: number,
+    width: number,
+    height: number,
+    radius: number
+  ) {
+    const r = Math.min(radius, width / 2, height / 2);
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + width, y, x + width, y + height, r);
+    ctx.arcTo(x + width, y + height, x, y + height, r);
+    ctx.arcTo(x, y + height, x, y, r);
+    ctx.arcTo(x, y, x + width, y, r);
+    ctx.closePath();
+  }
 
   type Color = `#${string}`;
   const [color, setColor] = useState<Color>("#000000");
@@ -266,6 +283,10 @@ export default function CardMaker() {
       const img = new Image();
       img.src = baseData.imageSrc;
       img.onload = () => {
+        ctx.save();
+        drawRoundedRect(ctx, baseX, baseY, baseW, baseH, baseData.radius);
+        ctx.clip();
+
         ctx.drawImage(
           img,
           baseX +
@@ -277,12 +298,18 @@ export default function CardMaker() {
           (baseData.imageWidth / 100) * baseW,
           (baseData.imageHight / 100) * baseH
         );
+        ctx.restore();
 
-        drawLayers(ctx, baseX, baseY, baseW, baseH); // ベースの上に描画
+        drawLayers(ctx, baseX, baseY, baseW, baseH);
       };
     } else {
+      ctx.save();
+      drawRoundedRect(ctx, baseX, baseY, baseW, baseH, baseData.radius);
+      ctx.clip();
       ctx.fillStyle = baseData.bgColor;
-      ctx.fillRect(baseX, baseY, baseW, baseH);
+      ctx.fill();
+      ctx.restore();
+
       drawLayers(ctx, baseX, baseY, baseW, baseH);
     }
   }, [canvasData, baseData, layers]);
@@ -319,8 +346,15 @@ export default function CardMaker() {
             const textMetrics = ctx.measureText(layer.value);
             const textW = textMetrics.width + layer.textPadding * 2;
             const textH = layer.fontSize + layer.textPadding * 2;
+
+            const rectX = x - textW / 2;
+            const rectY = y - textH / 2;
+
+            ctx.save();
+            drawRoundedRect(ctx, rectX, rectY, textW, textH, layer.bgRadius);
             ctx.fillStyle = hexToRGBA(layer.bgColor, layer.bgOpacity);
-            ctx.fillRect(x - textW / 2, y - textH / 2, textW, textH);
+            ctx.fill();
+            ctx.restore();
           }
 
           ctx.fillStyle = layer.fontColor;
@@ -336,9 +370,20 @@ export default function CardMaker() {
           img.onload = () => {
             const imgW = ((layer.imageWidth ?? 100) / 100) * baseW;
             const imgH = ((layer.imageHeight ?? 100) / 100) * baseH;
+            ctx.save();
+            drawRoundedRect(
+              ctx,
+              x - imgW / 2,
+              y - imgH / 2,
+              imgW,
+              imgH,
+              layer.bgRadius
+            );
+            ctx.clip();
             ctx.globalAlpha = layer.opacity ?? 1;
             ctx.drawImage(img, x - imgW / 2, y - imgH / 2, imgW, imgH);
             ctx.globalAlpha = 1;
+            ctx.restore();
           };
         }
       });
