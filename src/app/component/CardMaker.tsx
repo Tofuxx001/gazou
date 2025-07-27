@@ -271,50 +271,51 @@ export default function CardMaker() {
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    // 背景（塗りつぶし）
+    // 背景の描画
     ctx.fillStyle = canvasData.bgColor;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    // ベース画像 or 色
-    const baseW = canvas.width * (baseData.width / 100);
-    const baseH = canvas.height * (baseData.height / 100);
-    const baseX = canvas.width / 2 - baseW / 2;
-    const baseY = canvas.height / 2 - baseH / 2;
+    // ベースの描画とレイヤーの描画を分離
+    const draw = () => {
+      const baseW = canvas.width * (baseData.width / 100);
+      const baseH = canvas.height * (baseData.height / 100);
+      const baseX = canvas.width / 2 - baseW / 2;
+      const baseY = canvas.height / 2 - baseH / 2;
 
-    if (baseData.imageSrc !== "null") {
-      const img = new Image();
-      img.src = baseData.imageSrc;
-      img.onload = () => {
+      if (baseData.imageSrc !== "null") {
+        const img = new Image();
+        img.src = baseData.imageSrc;
+        img.onload = () => {
+          ctx.save();
+          drawRoundedRect(ctx, baseX, baseY, baseW, baseH, baseData.radius);
+          ctx.clip();
+          ctx.drawImage(
+            img,
+            baseX +
+              (baseData.imagePositionX / 100) * baseW -
+              (baseData.imageWidth / 200) * baseW,
+            baseY +
+              (baseData.imagePositionY / 100) * baseH -
+              (baseData.imageHight / 200) * baseH,
+            (baseData.imageWidth / 100) * baseW,
+            (baseData.imageHight / 100) * baseH
+          );
+          ctx.restore();
+          drawLayers(ctx, baseX, baseY, baseW, baseH);
+        };
+      } else {
         ctx.save();
         drawRoundedRect(ctx, baseX, baseY, baseW, baseH, baseData.radius);
         ctx.clip();
-
-        ctx.drawImage(
-          img,
-          baseX +
-            (baseData.imagePositionX / 100) * baseW -
-            (baseData.imageWidth / 200) * baseW,
-          baseY +
-            (baseData.imagePositionY / 100) * baseH -
-            (baseData.imageHight / 200) * baseH,
-          (baseData.imageWidth / 100) * baseW,
-          (baseData.imageHight / 100) * baseH
-        );
+        ctx.fillStyle = baseData.bgColor;
+        ctx.fill();
         ctx.restore();
-
         drawLayers(ctx, baseX, baseY, baseW, baseH);
-      };
-    } else {
-      ctx.save();
-      drawRoundedRect(ctx, baseX, baseY, baseW, baseH, baseData.radius);
-      ctx.clip();
-      ctx.fillStyle = baseData.bgColor;
-      ctx.fill();
-      ctx.restore();
+      }
+    };
 
-      drawLayers(ctx, baseX, baseY, baseW, baseH);
-    }
-  }, [canvasData, baseData, layers]);
+    draw();
+  }, [canvasData, baseData, JSON.stringify(layers)]);
   function drawLayers(
     ctx: CanvasRenderingContext2D,
     baseX: number,
