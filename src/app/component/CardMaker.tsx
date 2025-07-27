@@ -322,7 +322,6 @@ export default function CardMaker() {
   ) {
     layers
       .filter((layer) => layer.visible !== false)
-      .sort((a, b) => a.zIndex - b.zIndex)
       .forEach((layer) => {
         const [posX, posY] = getLayerPosition(
           layer.PositionPreset,
