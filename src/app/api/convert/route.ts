@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import puppeteer from "puppeteer"; // or puppeteer-core
+import puppeteer from "puppeteer";
+
+export const runtime = "nodejs"; // ← 追加！
 
 export async function POST(req: NextRequest) {
-    
   const { html, width, height } = await req.json();
 
   if (!html || !width || !height) {

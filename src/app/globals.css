@@ -5,6 +5,12 @@
   --background: #ffffff;
   --foreground: #171717;
 }
+.logo {
+  height: 6em;
+  padding: 1.5em;
+  will-change: filter;
+  transition: filter 300ms;
+}
 
 @theme inline {
   --color-background: var(--background);

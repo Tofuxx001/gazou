@@ -1,14 +1,7 @@
 "use client";
-import { use, useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { HexColorPicker } from "react-colorful";
-import {
-  Tabs,
-  TextArea,
-  Slider,
-  Switch,
-  TextField,
-  Select,
-} from "@radix-ui/themes";
+import { Tabs, TextArea, Slider, Switch, Select } from "@radix-ui/themes";
 import { Trash2, FilePen, Save } from "lucide-react";
 import {
   SortableContext,
@@ -18,36 +11,34 @@ import { DndContext, DragEndEvent } from "@dnd-kit/core";
 import { SortableItem } from "./ SortableItem";
 
 export default function CardMaker() {
+  //
   async function SaveCard() {
-    const target = document.getElementById("myCanvas");
-    if (!target) return;
-
-    const html = target.outerHTML;
-
-    const response = await fetch("/api/convert", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        html,
-        width: canvasData.width,
-        height: canvasData.height,
-      }),
-    });
-
-    if (!response.ok) {
-      console.error("画像保存API失敗:", await response.text());
+    const canvas = document.getElementById("myCanvas") as HTMLCanvasElement;
+    if (!canvas) {
+      console.error("Canvas 要素が見つかりません");
       return;
     }
 
-    const blob = await response.blob();
-    const url = URL.createObjectURL(blob);
+    // toBlobは非同期なので Promise化
+    const blob = await new Promise<Blob | null>((resolve) => {
+      canvas.toBlob((b) => resolve(b), "image/png");
+    });
 
+    if (!blob) {
+      console.error("Canvas の blob 変換に失敗しました");
+      return;
+    }
+
+    const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
     a.download = "card.png";
     a.click();
+
+    // メモリ解放
     URL.revokeObjectURL(url);
   }
+
   //以下変数用変数
 
   type Color = `#${string}`;
@@ -91,65 +82,7 @@ export default function CardMaker() {
     values: Record<string, string>; // title => value マッピング
   };
   const [tableRows, setTableRows] = useState<TableRow[]>([]);
-  const [layers, setLayers] = useState<Layer[]>([
-    {
-      id: "1",
-      type: "text",
-      value: "",
-      title: "タイトル",
-      zIndex: 3,
-      fontStyle: "normal",
-      fontSize: 20,
-      fontColor: "#000000",
-      fontOutline: "#000000",
-      PositionPreset: "center",
-      positionAdjX: 0,
-      positionAdjY: 0,
-      backGround: false,
-      textPadding: 10,
-      bgColor: "#111111",
-      bgRadius: 0,
-      bgOpacity: 1,
-    },
-    {
-      id: "2",
-      type: "text",
-      value: "説明文2",
-      title: "タイトル２",
-      zIndex: 2,
-      fontStyle: "normal",
-      fontSize: 20,
-      fontColor: "#000000",
-      fontOutline: "#000000",
-      PositionPreset: "center",
-      positionAdjX: 0,
-      positionAdjY: 0,
-      backGround: false,
-      textPadding: 10,
-      bgColor: "#111111",
-      bgRadius: 0,
-      bgOpacity: 1,
-    },
-    {
-      id: "3",
-      type: "text",
-      value: "注釈3",
-      title: "タイトル３",
-      zIndex: 1,
-      fontStyle: "normal",
-      fontSize: 20,
-      fontColor: "#000000",
-      fontOutline: "#000000",
-      PositionPreset: "center",
-      positionAdjX: 0,
-      positionAdjY: 0,
-      backGround: false,
-      textPadding: 10,
-      bgColor: "#111111",
-      bgRadius: 0,
-      bgOpacity: 1,
-    },
-  ]);
+  const [layers, setLayers] = useState<Layer[]>([]);
   //表用
   type CardData = {
     id: string;
@@ -211,80 +144,6 @@ export default function CardMaker() {
     transform += ` translateY(-${offsetY}px)`;
     return transform;
   };
-  const getLayerStyle = (layer: Layer): React.CSSProperties => {
-    // ベースの実ピクセルサイズ（キャンバスサイズに対する割合）
-    const baseW = canvasData.width * (baseData.width / 100);
-    const baseH = canvasData.height * (baseData.height / 100);
-
-    // 各位置プリセットごとのオフセットとtransform
-    const presetOffsets: Record<
-      Layer["PositionPreset"],
-      [string, string, string]
-    > = {
-      "top-left": ["0%", "0%", "translate(0%, 0%)"],
-      "top-center": ["50%", "0%", "translate(-50%, 0%)"],
-      "top-right": ["100%", "0%", "translate(-100%, 0%)"],
-      "center-left": ["0%", "50%", "translate(0%, -50%)"],
-      center: ["50%", "50%", "translate(-50%, -50%)"],
-      "center-right": ["100%", "50%", "translate(-100%, -50%)"],
-      "bottom-left": ["0%", "100%", "translate(0%, -100%)"],
-      "bottom-center": ["50%", "100%", "translate(-50%, -100%)"],
-      "bottom-right": ["100%", "100%", "translate(-100%, -100%)"],
-    };
-
-    const [left, top, transform] = presetOffsets[layer.PositionPreset];
-
-    const style: React.CSSProperties = {
-      position: "absolute",
-      left: `calc(${left} + ${layer.positionAdjX}px)`,
-      top: `calc(${top} + ${layer.positionAdjY}px)`,
-      transform,
-      zIndex: layer.zIndex,
-      borderRadius: `${layer.bgRadius}px`,
-      overflow: "visible",
-      whiteSpace: "pre-line",
-    };
-
-    if (layer.type === "text") {
-      style.transform = transformWithFontFix(
-        layer.PositionPreset,
-        layer.fontSize
-      );
-
-      style.fontSize = `${layer.fontSize}px`;
-      style.lineHeight = `${layer.fontSize}px`; // ← 🎯 これ追加
-
-      style.fontWeight =
-        layer.fontStyle === "Bold"
-          ? "bold"
-          : layer.fontStyle === "thin"
-          ? "200"
-          : "normal";
-
-      style.color = layer.fontColor;
-      style.textShadow = `0 0 2px ${layer.fontOutline}`;
-      style.padding = `${layer.textPadding}px`;
-      style.whiteSpace = "pre-line";
-
-      style.backgroundColor = layer.backGround
-        ? hexToRGBA(layer.bgColor, layer.bgOpacity)
-        : "transparent";
-
-      // 🎯 追加スタイル
-      style.WebkitFontSmoothing = "antialiased";
-      style.MozOsxFontSmoothing = "grayscale";
-    }
-
-    if (layer.type === "image") {
-      style.width = `${layer.imageWidth}px`;
-      style.height = `${layer.imageHeight}px`;
-      style.objectFit = layer.fitStyle ?? "contain";
-      style.opacity = layer.opacity ?? 1;
-    }
-
-    return style;
-  };
-
   //これは画像の変換
   const handleImageUpload =
     <T extends { imageSrc: string }>(
@@ -351,6 +210,129 @@ export default function CardMaker() {
     imagePositionY: 50,
   });
 
+  //Canvas
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    // 背景（塗りつぶし）
+    ctx.fillStyle = canvasData.bgColor;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // ベース画像 or 色
+    const baseW = canvas.width * (baseData.width / 100);
+    const baseH = canvas.height * (baseData.height / 100);
+    const baseX = canvas.width / 2 - baseW / 2;
+    const baseY = canvas.height / 2 - baseH / 2;
+
+    if (baseData.imageSrc !== "null") {
+      const img = new Image();
+      img.src = baseData.imageSrc;
+      img.onload = () => {
+        ctx.drawImage(
+          img,
+          baseX +
+            (baseData.imagePositionX / 100) * baseW -
+            (baseData.imageWidth / 200) * baseW,
+          baseY +
+            (baseData.imagePositionY / 100) * baseH -
+            (baseData.imageHight / 200) * baseH,
+          (baseData.imageWidth / 100) * baseW,
+          (baseData.imageHight / 100) * baseH
+        );
+
+        drawLayers(ctx, baseX, baseY, baseW, baseH); // ベースの上に描画
+      };
+    } else {
+      ctx.fillStyle = baseData.bgColor;
+      ctx.fillRect(baseX, baseY, baseW, baseH);
+      drawLayers(ctx, baseX, baseY, baseW, baseH);
+    }
+  }, [canvasData, baseData, layers]);
+  function drawLayers(
+    ctx: CanvasRenderingContext2D,
+    baseX: number,
+    baseY: number,
+    baseW: number,
+    baseH: number
+  ) {
+    layers
+      .sort((a, b) => a.zIndex - b.zIndex)
+      .forEach((layer) => {
+        const [posX, posY] = getLayerPosition(
+          layer.PositionPreset,
+          baseX,
+          baseY,
+          baseW,
+          baseH
+        );
+
+        const x = posX + layer.positionAdjX;
+        const y = posY + layer.positionAdjY;
+
+        if (layer.type === "text") {
+          ctx.font = `${layer.fontStyle === "Bold" ? "bold " : ""}${
+            layer.fontSize
+          }px sans-serif`;
+          ctx.fillStyle = layer.fontColor;
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+
+          if (layer.backGround) {
+            const textMetrics = ctx.measureText(layer.value);
+            const textW = textMetrics.width + layer.textPadding * 2;
+            const textH = layer.fontSize + layer.textPadding * 2;
+            ctx.fillStyle = hexToRGBA(layer.bgColor, layer.bgOpacity);
+            ctx.fillRect(x - textW / 2, y - textH / 2, textW, textH);
+          }
+
+          ctx.fillStyle = layer.fontColor;
+          ctx.strokeStyle = layer.fontOutline;
+          ctx.lineWidth = 1;
+          ctx.strokeText(layer.value, x, y);
+          ctx.fillText(layer.value, x, y);
+        }
+
+        if (layer.type === "image" && layer.value) {
+          const img = new Image();
+          img.src = layer.value;
+          img.onload = () => {
+            const imgW = ((layer.imageWidth ?? 100) / 100) * baseW;
+            const imgH = ((layer.imageHeight ?? 100) / 100) * baseH;
+            ctx.globalAlpha = layer.opacity ?? 1;
+            ctx.drawImage(img, x - imgW / 2, y - imgH / 2, imgW, imgH);
+            ctx.globalAlpha = 1;
+          };
+        }
+      });
+  }
+  function getLayerPosition(
+    preset: Layer["PositionPreset"],
+    baseX: number,
+    baseY: number,
+    baseW: number,
+    baseH: number
+  ): [number, number] {
+    const posMap = {
+      "top-left": [0, 0],
+      "top-center": [baseW / 2, 0],
+      "top-right": [baseW, 0],
+      "center-left": [0, baseH / 2],
+      center: [baseW / 2, baseH / 2],
+      "center-right": [baseW, baseH / 2],
+      "bottom-left": [0, baseH],
+      "bottom-center": [baseW / 2, baseH],
+      "bottom-right": [baseW, baseH],
+    };
+
+    const [relX, relY] = posMap[preset];
+    return [baseX + relX, baseY + relY];
+  }
   return (
     <>
       <div className="grid grid-cols-3 gap-2">
@@ -924,59 +906,17 @@ export default function CardMaker() {
             ))}
           </Tabs.Root>
         </div>
-        <div
+        <canvas
           id="myCanvas"
-          className=""
+          ref={canvasRef}
+          width={canvasData.width}
+          height={canvasData.height}
           style={{
-            position: "relative",
-            width: canvasData.width,
-            height: canvasData.height,
+            borderRadius: `${canvasData.radius}px`,
             backgroundColor: canvasData.bgColor,
-            borderRadius: canvasData.radius,
-            imageRendering: "pixelated", // オプション
-            transform: "scale(1)", // debug用に明示的に拡大縮小を抑止
-          }}>
-          <div
-            id="base"
-            style={{
-              position: "absolute",
-              top: "50%",
-              left: "50%",
-              transform: "translate(-50%, -50%)",
-              width: canvasData.width * baseData.width * 0.01,
-              height: canvasData.height * baseData.height * 0.01,
-              ...(baseData.imageSrc != "null"
-                ? {
-                    backgroundImage: `url(${baseData.imageSrc})`,
-                    backgroundSize: `${baseData.imageHight}% ${baseData.imageWidth}%`,
-                    backgroundPosition: `${baseData.imagePositionX}% ${baseData.imagePositionY}%`,
-                  }
-                : {}),
-              ...(baseData.imageSrc == "null"
-                ? { backgroundColor: baseData.bgColor }
-                : {}),
-              overflow: "visible",
-              borderRadius: baseData.radius,
-            }}>
-            {layers.map((layer) => (
-              <div key={layer.id} style={getLayerStyle(layer)}>
-                {layer.type === "text" && layer.value}
-                {layer.type === "image" && layer.value && (
-                  <img
-                    src={layer.value}
-                    style={{
-                      width: `${layer.imageWidth}px`,
-                      height: `${layer.imageHeight}px`,
-                      borderRadius: `${layer.bgRadius}px`,
-                      objectFit: "contain",
-                      pointerEvents: "none",
-                    }}
-                  />
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
+            imageRendering: "pixelated",
+          }}
+        />
         <div id="TextEditor" className="m-3 border-1 rounded-xl p-2 ">
           <Tabs.Root defaultValue="Text" className="">
             <Tabs.List className=" flex gap-2 mb-2">
