@@ -121,29 +121,6 @@ export default function CardMaker() {
     });
   };
   //これはレイヤー描画
-  const transformWithFontFix = (
-    preset: Layer["PositionPreset"],
-    fontSize: number
-  ): string => {
-    const presetTransforms: Record<Layer["PositionPreset"], string> = {
-      "top-left": "translate(0%, 0%)",
-      "top-center": "translate(-50%, 0%)",
-      "top-right": "translate(-100%, 0%)",
-      "center-left": "translate(0%, -50%)",
-      center: "translate(-50%, -50%)",
-      "center-right": "translate(-100%, -50%)",
-      "bottom-left": "translate(0%, -100%)",
-      "bottom-center": "translate(-50%, -100%)",
-      "bottom-right": "translate(-100%, -100%)",
-    };
-
-    let transform = presetTransforms[preset];
-
-    // 補正（大文字フォントサイズが極端に大きいときのY方向ズレ対策）
-    const offsetY = fontSize * 0.5; // ※調整可能（だいたい良いのは 0.12〜0.18）
-    transform += ` translateY(-${offsetY}px)`;
-    return transform;
-  };
   //これは画像の変換
   const handleImageUpload =
     <T extends { imageSrc: string }>(
