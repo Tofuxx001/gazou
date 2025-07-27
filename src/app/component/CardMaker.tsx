@@ -1058,6 +1058,40 @@ export default function CardMaker() {
                 + レイヤー追加
               </button>
               <button
+                onClick={() => {
+                  setLayers((prev) => {
+                    const nextId = `${Date.now()}`;
+                    const maxZ = Math.max(...prev.map((l) => l.zIndex), 0);
+                    const newLayer: Layer = {
+                      id: nextId,
+                      type: "image",
+                      title: `画像レイヤー${prev.length + 1}`,
+                      value: "",
+                      zIndex: maxZ + 1,
+                      fontStyle: "normal", // 使わないけど型のため一応
+                      fontSize: 20,
+                      fontColor: "#000000",
+                      fontOutline: "#000000",
+                      PositionPreset: "center",
+                      positionAdjX: 0,
+                      positionAdjY: 0,
+                      backGround: false,
+                      textPadding: 0,
+                      bgColor: "#ffffff",
+                      bgOpacity: 1,
+                      bgRadius: 0,
+                      imageWidth: 100,
+                      imageHeight: 100,
+                      fitStyle: "contain",
+                      opacity: 1,
+                    };
+                    return [...prev, newLayer];
+                  });
+                }}
+                className="bg-purple-500 text-white px-4 py-1 rounded">
+                + 画像レイヤー追加
+              </button>
+              <button
                 onClick={async () => {
                   await SaveCard();
 
