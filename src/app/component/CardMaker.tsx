@@ -342,17 +342,25 @@ export default function CardMaker() {
 
         const lines = layer.value.split("\n");
         const lineHeight = layer.fontSize * 1.2;
+        const maxLineWidth = Math.max(
+          ...lines.map((line) => ctx.measureText(line).width)
+        );
 
-        // 背景ボックスを描画（全行分の高さ）
+        const textW = maxLineWidth + layer.textPadding * 2;
+        const textH = lineHeight * lines.length + layer.textPadding * 2;
+
+        // 🎯 背景ボックスの位置
+        let rectX = x;
+        if (layer.textAlign === "center") {
+          rectX = x - textW / 2;
+        } else if (layer.textAlign === "right") {
+          rectX = x - textW;
+        } // "left" はそのまま
+
+        const rectY = y - textH / 2;
+
+        // 🟦 背景の描画
         if (layer.backGround) {
-          const maxWidth = Math.max(
-            ...lines.map((line) => ctx.measureText(line).width)
-          );
-          const textW = maxWidth + layer.textPadding * 2;
-          const textH = lineHeight * lines.length + layer.textPadding * 2;
-          const rectX = x - textW / 2;
-          const rectY = y - textH / 2;
-
           ctx.save();
           drawRoundedRect(ctx, rectX, rectY, textW, textH, layer.bgRadius);
           ctx.fillStyle = hexToRGBA(layer.bgColor, layer.bgOpacity);
@@ -360,9 +368,10 @@ export default function CardMaker() {
           ctx.restore();
         }
 
+        // 📝 テキスト描画（1行ずつ）
         ctx.strokeStyle = layer.fontOutline;
-        ctx.lineWidth = 1;
         ctx.fillStyle = layer.fontColor;
+        ctx.lineWidth = 1;
 
         lines.forEach((line, i) => {
           const offsetY = (i - (lines.length - 1) / 2) * lineHeight;
