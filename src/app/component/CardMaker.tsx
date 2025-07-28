@@ -267,42 +267,36 @@ export default function CardMaker() {
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    // 背景の描画
-    ctx.fillStyle = canvasData.bgColor;
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    const drawAll = async () => {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = canvasData.bgColor;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    // ベースの描画とレイヤーの描画を分離
-    const draw = () => {
       const baseW = canvas.width * (baseData.width / 100);
       const baseH = canvas.height * (baseData.height / 100);
       const baseX = canvas.width / 2 - baseW / 2;
       const baseY = canvas.height / 2 - baseH / 2;
 
       if (baseData.imageSrc !== "null") {
-        const img = new Image();
-        img.src = baseData.imageSrc;
-        img.onload = () => {
-          ctx.save();
-          drawRoundedRect(ctx, baseX, baseY, baseW, baseH, baseData.radius);
-          ctx.clip();
-          ctx.drawImage(
-            img,
-            baseX +
-              (baseData.imagePositionX / 100) * baseW -
-              (baseData.imageWidth / 200) * baseW,
-            baseY +
-              (baseData.imagePositionY / 100) * baseH -
-              (baseData.imageHight / 200) * baseH,
-            (baseData.imageWidth / 100) * baseW,
-            (baseData.imageHight / 100) * baseH
-          );
-          ctx.restore();
-          drawLayers(ctx, baseX, baseY, baseW, baseH);
-        };
+        const img = await loadImageAsync(baseData.imageSrc);
+        ctx.save();
+        drawRoundedRect(ctx, baseX, baseY, baseW, baseH, baseData.radius);
+        ctx.clip();
+        ctx.drawImage(
+          img,
+          baseX +
+            (baseData.imagePositionX / 100) * baseW -
+            (baseData.imageWidth / 200) * baseW,
+          baseY +
+            (baseData.imagePositionY / 100) * baseH -
+            (baseData.imageHight / 200) * baseH,
+          (baseData.imageWidth / 100) * baseW,
+          (baseData.imageHight / 100) * baseH
+        );
+        ctx.restore();
       } else {
         ctx.save();
         drawRoundedRect(ctx, baseX, baseY, baseW, baseH, baseData.radius);
@@ -310,87 +304,91 @@ export default function CardMaker() {
         ctx.fillStyle = baseData.bgColor;
         ctx.fill();
         ctx.restore();
-        drawLayers(ctx, baseX, baseY, baseW, baseH);
       }
+
+      await drawLayersSync(ctx, baseX, baseY, baseW, baseH);
     };
 
-    draw();
+    drawAll();
   }, [canvasData, baseData, JSON.stringify(layers)]);
-  function drawLayers(
+
+  async function drawLayersSync(
     ctx: CanvasRenderingContext2D,
     baseX: number,
     baseY: number,
     baseW: number,
     baseH: number
   ) {
-    layers
-      .filter((layer) => layer.visible !== false)
-      .forEach((layer) => {
-        const [posX, posY] = getLayerPosition(
-          layer.PositionPreset,
-          baseX,
-          baseY,
-          baseW,
-          baseH
+    for (const layer of layers) {
+      if (layer.visible === false) continue;
+
+      const [posX, posY] = getLayerPosition(
+        layer.PositionPreset,
+        baseX,
+        baseY,
+        baseW,
+        baseH
+      );
+      const x = posX + layer.positionAdjX;
+      const y = posY + layer.positionAdjY;
+
+      if (layer.type === "text") {
+        ctx.font = `${layer.fontStyle === "Bold" ? "bold " : ""}${
+          layer.fontSize
+        }px sans-serif`;
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+
+        if (layer.backGround) {
+          const textMetrics = ctx.measureText(layer.value);
+          const textW = textMetrics.width + layer.textPadding * 2;
+          const textH = layer.fontSize + layer.textPadding * 2;
+          const rectX = x - textW / 2;
+          const rectY = y - textH / 2;
+          ctx.save();
+          drawRoundedRect(ctx, rectX, rectY, textW, textH, layer.bgRadius);
+          ctx.fillStyle = hexToRGBA(layer.bgColor, layer.bgOpacity);
+          ctx.fill();
+          ctx.restore();
+        }
+
+        ctx.strokeStyle = layer.fontOutline;
+        ctx.lineWidth = 1;
+        ctx.strokeText(layer.value, x, y);
+        ctx.fillStyle = layer.fontColor;
+        ctx.fillText(layer.value, x, y);
+      }
+
+      if (layer.type === "image" && layer.value) {
+        const img = await loadImageAsync(layer.value);
+        const imgW = ((layer.imageWidth ?? 100) / 100) * baseW;
+        const imgH = ((layer.imageHeight ?? 100) / 100) * baseH;
+        ctx.save();
+        drawRoundedRect(
+          ctx,
+          x - imgW / 2,
+          y - imgH / 2,
+          imgW,
+          imgH,
+          layer.bgRadius
         );
-
-        const x = posX + layer.positionAdjX;
-        const y = posY + layer.positionAdjY;
-
-        if (layer.type === "text") {
-          ctx.font = `${layer.fontStyle === "Bold" ? "bold " : ""}${
-            layer.fontSize
-          }px sans-serif`;
-          ctx.fillStyle = layer.fontColor;
-          ctx.textAlign = "center";
-          ctx.textBaseline = "middle";
-
-          if (layer.backGround) {
-            const textMetrics = ctx.measureText(layer.value);
-            const textW = textMetrics.width + layer.textPadding * 2;
-            const textH = layer.fontSize + layer.textPadding * 2;
-
-            const rectX = x - textW / 2;
-            const rectY = y - textH / 2;
-
-            ctx.save();
-            drawRoundedRect(ctx, rectX, rectY, textW, textH, layer.bgRadius);
-            ctx.fillStyle = hexToRGBA(layer.bgColor, layer.bgOpacity);
-            ctx.fill();
-            ctx.restore();
-          }
-
-          ctx.fillStyle = layer.fontColor;
-          ctx.strokeStyle = layer.fontOutline;
-          ctx.lineWidth = 1;
-          ctx.strokeText(layer.value, x, y);
-          ctx.fillText(layer.value, x, y);
-        }
-
-        if (layer.type === "image" && layer.value) {
-          const img = new Image();
-          img.src = layer.value;
-          img.onload = () => {
-            const imgW = ((layer.imageWidth ?? 100) / 100) * baseW;
-            const imgH = ((layer.imageHeight ?? 100) / 100) * baseH;
-            ctx.save();
-            drawRoundedRect(
-              ctx,
-              x - imgW / 2,
-              y - imgH / 2,
-              imgW,
-              imgH,
-              layer.bgRadius
-            );
-            ctx.clip();
-            ctx.globalAlpha = layer.opacity ?? 1;
-            ctx.drawImage(img, x - imgW / 2, y - imgH / 2, imgW, imgH);
-            ctx.globalAlpha = 1;
-            ctx.restore();
-          };
-        }
-      });
+        ctx.clip();
+        ctx.globalAlpha = layer.opacity ?? 1;
+        ctx.drawImage(img, x - imgW / 2, y - imgH / 2, imgW, imgH);
+        ctx.globalAlpha = 1;
+        ctx.restore();
+      }
+    }
   }
+  function loadImageAsync(src: string): Promise<HTMLImageElement> {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.onerror = reject;
+      img.src = src;
+    });
+  }
+
   const [copiedStyle, setCopiedStyle] = useState<Partial<Layer> | null>(null);
   function getLayerPosition(
     preset: Layer["PositionPreset"],
