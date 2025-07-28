@@ -118,6 +118,7 @@ export default function CardMaker() {
     zIndex: number;
     fontStyle: "thin" | "normal" | "Bold";
     fontSize: number;
+    textAlign: "left" | "center" | "right";
     fontColor: Color;
     fontOutline: Color;
     PositionPreset:
@@ -336,7 +337,7 @@ export default function CardMaker() {
         ctx.font = `${layer.fontStyle === "Bold" ? "bold " : ""}${
           layer.fontSize
         }px sans-serif`;
-        ctx.textAlign = "center";
+        ctx.textAlign = layer.textAlign;
         ctx.textBaseline = "middle";
 
         const lines = layer.value.split("\n");
@@ -866,7 +867,33 @@ export default function CardMaker() {
                           <Select.Item value="Bold">Bold</Select.Item>
                         </Select.Content>
                       </Select.Root>
-
+                      <label className="text-sm">
+                        文字揃え
+                        <Select.Root
+                          value={layer.textAlign}
+                          onValueChange={(val) =>
+                            setLayers((prev) =>
+                              prev.map((l) =>
+                                l.id === layer.id
+                                  ? {
+                                      ...l,
+                                      textAlign: val as
+                                        | "left"
+                                        | "center"
+                                        | "right",
+                                    }
+                                  : l
+                              )
+                            )
+                          }>
+                          <Select.Trigger />
+                          <Select.Content>
+                            <Select.Item value="left">左揃え</Select.Item>
+                            <Select.Item value="center">中央</Select.Item>
+                            <Select.Item value="right">右揃え</Select.Item>
+                          </Select.Content>
+                        </Select.Root>
+                      </label>
                       <div className="grid grid-cols-2">
                         <div>
                           <div>フォント色</div>
@@ -1164,6 +1191,7 @@ export default function CardMaker() {
                       zIndex: maxZ + 1,
                       fontStyle: "normal",
                       fontSize: 20,
+                      textAlign: "left",
                       fontColor: "#000000",
                       fontOutline: "#000000",
                       PositionPreset: "center",
@@ -1195,7 +1223,9 @@ export default function CardMaker() {
                       zIndex: maxZ + 1,
                       fontStyle: "normal", // 使わないけど型のため一応
                       fontSize: 20,
+                      textAlign: "left",
                       fontColor: "#000000",
+
                       fontOutline: "#000000",
                       PositionPreset: "center",
                       positionAdjX: 0,
