@@ -339,12 +339,19 @@ export default function CardMaker() {
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
 
+        const lines = layer.value.split("\n");
+        const lineHeight = layer.fontSize * 1.2;
+
+        // 背景ボックスを描画（全行分の高さ）
         if (layer.backGround) {
-          const textMetrics = ctx.measureText(layer.value);
-          const textW = textMetrics.width + layer.textPadding * 2;
-          const textH = layer.fontSize + layer.textPadding * 2;
+          const maxWidth = Math.max(
+            ...lines.map((line) => ctx.measureText(line).width)
+          );
+          const textW = maxWidth + layer.textPadding * 2;
+          const textH = lineHeight * lines.length + layer.textPadding * 2;
           const rectX = x - textW / 2;
           const rectY = y - textH / 2;
+
           ctx.save();
           drawRoundedRect(ctx, rectX, rectY, textW, textH, layer.bgRadius);
           ctx.fillStyle = hexToRGBA(layer.bgColor, layer.bgOpacity);
@@ -354,9 +361,13 @@ export default function CardMaker() {
 
         ctx.strokeStyle = layer.fontOutline;
         ctx.lineWidth = 1;
-        ctx.strokeText(layer.value, x, y);
         ctx.fillStyle = layer.fontColor;
-        ctx.fillText(layer.value, x, y);
+
+        lines.forEach((line, i) => {
+          const offsetY = (i - (lines.length - 1) / 2) * lineHeight;
+          ctx.strokeText(line, x, y + offsetY);
+          ctx.fillText(line, x, y + offsetY);
+        });
       }
 
       if (layer.type === "image" && layer.value) {
