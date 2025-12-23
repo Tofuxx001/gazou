@@ -1,3 +1,5 @@
+"use client";
+import { AdMaxSlot } from "./_components/AdMaxSlot";
 import Image from "next/image";
 import CardMaker from "./component/CardMaker";
 import logoPng from "../assets/proxyz-logo.png";
@@ -44,9 +46,9 @@ export default function Home() {
       </header>
       <CardMaker></CardMaker>
       <div id="ad-area" className="h-200">
-        <Script
-          src="https://adm.shinobi.jp/s/fe837c5d039f86ecd23c137d51ef7dcd"
-          strategy="beforeInteractive"
+        <AdMaxSlot
+          admaxId="https://adm.shinobi.jp/s/fe837c5d039f86ecd23c137d51ef7dcd"
+          type="switch"
         />
       </div>
       <section
