@@ -46,7 +46,7 @@ export default function Home() {
       <div id="ad-area">
         <Script
           src="https://adm.shinobi.jp/s/fe837c5d039f86ecd23c137d51ef7dcd"
-          strategy="afterInteractive"
+          strategy="beforeInteractive"
         />
       </div>
       <section
