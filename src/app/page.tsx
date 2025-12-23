@@ -2,6 +2,7 @@ import Image from "next/image";
 import CardMaker from "./component/CardMaker";
 import logoPng from "../assets/proxyz-logo.png";
 import synaplogo from "../assets/SynapStudio.png";
+import Script from "next/script";
 
 export default function Home() {
   return (
@@ -42,6 +43,12 @@ export default function Home() {
         </nav>
       </header>
       <CardMaker></CardMaker>
+      <div id="ad-area" style={{ margin: "24px 0", minHeight: 250 }}>
+        <Script
+          src="https://adm.shinobi.jp/s/fe837c5d039f86ecd23c137d51ef7dcd"
+          strategy="afterInteractive"
+        />
+      </div>
       <section
         id="updates"
         className="mt-12 px-6 py-10 bg-white shadow-md rounded-lg max-w-5xl mx-auto">
