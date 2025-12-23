@@ -43,7 +43,7 @@ export default function Home() {
         </nav>
       </header>
       <CardMaker></CardMaker>
-      <div id="ad-area">
+      <div id="ad-area" className="h-200">
         <Script
           src="https://adm.shinobi.jp/s/fe837c5d039f86ecd23c137d51ef7dcd"
           strategy="beforeInteractive"
