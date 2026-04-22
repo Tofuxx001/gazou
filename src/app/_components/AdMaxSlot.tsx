@@ -13,7 +13,6 @@ const ADMAX_SDK_SRC = "https://adm.shinobi.jp/st/t.js";
 const ADMAX_SCRIPT_ID = "admax-sdk";
 
 function ensureAdmaxSdkLoaded() {
-  // 二重読み込み防止
   if (document.getElementById(ADMAX_SCRIPT_ID)) return;
 
   const s = document.createElement("script");
@@ -26,7 +25,6 @@ function ensureAdmaxSdkLoaded() {
 
 type Props = {
   admaxId: string;
-  /** PC/SP切替なら "switch" がよく使われる */
   type?: string;
   className?: string;
   style?: React.CSSProperties;
@@ -39,20 +37,17 @@ export function AdMaxSlot({
   style,
 }: Props) {
   const pathname = usePathname();
-  const uid = useId(); // 同ページ内に複数置くときの衝突回避用
+  const uid = useId();
 
   useEffect(() => {
-    // キューを先に積む（SDKが後から来ても拾える想定）
     window.admaxads = window.admaxads || [];
     window.admaxads.push({ admax_id: admaxId, type });
-
-    // SDKロード（未ロードなら）
     ensureAdmaxSdkLoaded();
   }, [pathname, admaxId, type]);
 
   return (
     <div
-      key={`${pathname}-${uid}`} // ルート遷移でDOMを作り直してもらう
+      key={`${pathname}-${uid}`}
       className={className}
       data-admax-id={admaxId}
       style={{ display: "inline-block", ...style }}

@@ -3,7 +3,7 @@ import { useSortable } from "@dnd-kit/sortable";
 import type { UniqueIdentifier } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
 import type { ReactNode } from "react";
-import { GripVertical } from "lucide-react"; // ← ハンドル用アイコン
+import { GripVertical } from "lucide-react";
 
 type Props = {
   id: UniqueIdentifier;
@@ -25,10 +25,8 @@ export function SortableItem({ id, children }: Props) {
       style={style}
       {...attributes}
       className="flex items-center gap-2 p-2 border rounded bg-white">
-      {/* 👇 ここがドラッグ専用ハンドル！ */}
-      <span
-        {...listeners}
-        className="cursor-grab text-gray-400 cursor-grab select-none">
+      {/* ドラッグ専用ハンドル */}
+      <span {...listeners} className="cursor-grab text-gray-400 select-none">
         <GripVertical size={16} />
       </span>
 

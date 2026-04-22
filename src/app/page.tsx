@@ -1,10 +1,9 @@
 "use client";
 import { AdMaxSlot } from "./_components/AdMaxSlot";
 import Image from "next/image";
-import CardMaker from "./component/CardMaker";
+import CardMaker from "./_components/CardMaker";
 import logoPng from "../assets/proxyz-logo.png";
 import synaplogo from "../assets/SynapStudio.png";
-import Script from "next/script";
 
 export default function Home() {
   return (
@@ -15,7 +14,7 @@ export default function Home() {
           <div>
             <h1 className="text-xl font-bold text-gray-800">プロキシーズ</h1>
             <p className="text-sm text-gray-600">
-              ボドゲ・TCGプロキシ作成ツール（by SynapStudio） ver.02
+              ボドゲ・TCGプロキシ作成ツール（by SynapStudio） ver.03.2
             </p>
           </div>
         </div>
@@ -71,23 +70,82 @@ export default function Home() {
         </h2>
         <div className="bg-indigo-50 border-l-4 border-indigo-400 p-6 rounded-md">
           <h3 className="text-lg font-semibold text-indigo-800">
-            🗓️ 2025年7月 アップデート
+            🗓️ 2026年4月 大型アップデート
           </h3>
-          <ul className="list-disc list-inside mt-2 text-gray-800 space-y-1">
-            <li>🧱 テキストも画像も自由に追加できる「レイヤー制」に完全対応</li>
+          <p className="mt-2 text-sm text-gray-700">
+            UI全体を刷新し、より直感的に・より速く作れるエディタになりました。
+          </p>
+          <ul className="list-disc list-inside mt-3 text-gray-800 space-y-1">
             <li>
-              🔀 レイヤーはドラッグで並び替えできる（表示順をカンタン調整）
+              🪟 <strong>UIを全面リニューアル</strong>
+              。左に設定、中央にプレビュー、右にレイヤーパネルの3ペイン構成に
             </li>
             <li>
-              🎨
-              各レイヤーに個別で「色・サイズ・縁取り・背景・不透明度」など細かく設定可能
+              📐 <strong>カードサイズプリセット</strong>
+              を搭載。TCG標準・ポーカー・タロット等を一発適用
             </li>
-            <li>🖼️ 画像レイヤーには「サイズ」「位置」「角丸」なども指定OK</li>
-            <li>✍️ テキスト入力UIを改良、複数行や改行にも対応</li>
-            <li>🪄 カードの状態をそのままJSONで保存／読み込みできるように</li>
-            <li>📋 テーブル形式でカード一覧を確認・編集・再読み込みが可能に</li>
-            <li>📦 保存は「新規保存」「上書き保存」から選べて管理がラクに</li>
+            <li>
+              💾 <strong>自動保存</strong>
+              に対応。ブラウザを閉じても作業内容が消えません
+            </li>
+            <li>
+              🎨 <strong>カラーピッカーをポップオーバー化</strong>
+              。色のスウォッチをクリックすると展開、画面の圧迫感を解消
+            </li>
+            <li>
+              🖼 <strong>カード一覧をサムネイル表示</strong>
+              に。保存したカードを画像で見て選べます
+            </li>
+            <li>
+              📑 <strong>レイヤー詳細をセクション分け</strong>
+              （コンテンツ／配置／タイポグラフィ／背景）
+            </li>
+            <li>
+              🎯 <strong>位置指定がビジュアル化</strong>
+              。3×3のグリッドで基準位置を選べます
+            </li>
+            <li>
+              📤 <strong>「カード保存」と「PNG書き出し」を分離</strong>
+              。誤操作で無駄なPNGがダウンロードされなくなりました
+            </li>
+            <li>
+              📱 <strong>スマートフォン対応</strong>
+              。狭い画面でも縦スタックで操作可能
+            </li>
+            <li>
+              ✨ <strong>トースト通知</strong>
+              。保存・読込時に画面右下で結果を確認できます
+            </li>
+            <li>
+              🛡 <strong>削除前の確認ダイアログ</strong>。誤って消すのを防止
+            </li>
+            <li>
+              ♿ <strong>アクセシビリティ改善</strong>
+              。ラベルの関連付け、キーボード操作対応
+            </li>
           </ul>
+          <details className="mt-4 text-sm text-gray-600">
+            <summary className="cursor-pointer hover:text-indigo-700">
+              過去のアップデート
+            </summary>
+            <div className="mt-3 pl-3 border-l-2 border-indigo-200">
+              <h4 className="font-semibold text-indigo-800">
+                🗓️ 2025年7月 アップデート
+              </h4>
+              <ul className="list-disc list-inside mt-1 space-y-0.5">
+                <li>テキストも画像も自由に追加できる「レイヤー制」に対応</li>
+                <li>レイヤーをドラッグで並び替え可能に</li>
+                <li>
+                  レイヤーごとに色・サイズ・縁取り・背景・不透明度を細かく設定可能
+                </li>
+                <li>画像レイヤーにサイズ・位置・角丸を指定可能に</li>
+                <li>テキスト入力UIを改良、複数行・改行に対応</li>
+                <li>カードの状態をJSONで保存／読み込みできるように</li>
+                <li>テーブル形式でカード一覧を確認・編集できるように</li>
+                <li>「新規保存」「上書き保存」を選べるように</li>
+              </ul>
+            </div>
+          </details>
         </div>
       </section>
       <section
@@ -112,59 +170,107 @@ export default function Home() {
         <div className="grid md:grid-cols-2 gap-8 text-gray-800 text-base leading-relaxed">
           <div className="space-y-4">
             <h3 className="text-xl font-semibold text-indigo-600">
-              1. カード入力
+              1. カードサイズを決める
             </h3>
             <p>
-              タイトルや各テキスト内容を入力します。
+              左サイドバーの「カードサイズ」プリセットから選ぶか、幅・高さを直接入力。
               <br />
-              テキストは複数行もOK！
+              TCG標準（63×88mm）、ポーカー、タロットなど主要規格を即適用できます。
             </p>
 
             <h3 className="text-xl font-semibold text-indigo-600">
-              2. デザイン調整
+              2. ベース（カード本体）を整える
             </h3>
             <p>
-              背景色・文字色・角丸・余白・文字サイズ・位置を自在に設定可能。
+              カードの土台になる背景色や角丸、必要なら背景画像を設定。
               <br />
-              テキストごとに縁取りや背景、不透明度など細かく設定できます。
+              キャンバス全体に対する%指定なので、サイズを変えても比率が保たれます。
             </p>
 
             <h3 className="text-xl font-semibold text-indigo-600">
-              3. プレビューで確認
+              3. レイヤーを追加する
             </h3>
             <p>
-              プレビュー領域で即時反映！改行やレイアウト、画像との重なり順も確認しながら調整できます。
+              右パネル上部の{" "}
+              <code className="px-1.5 py-0.5 bg-indigo-100 rounded text-sm">
+                T
+              </code>
+              （テキスト）と{" "}
+              <code className="px-1.5 py-0.5 bg-indigo-100 rounded text-sm">
+                画像
+              </code>{" "}
+              アイコンから追加。
+              <br />
+              並び替えはドラッグハンドル、表示/非表示はスイッチで切替できます。
+            </p>
+
+            <h3 className="text-xl font-semibold text-indigo-600">
+              4. レイヤーの詳細を編集
+            </h3>
+            <p>
+              レイヤーをクリックで選択すると、下に「コンテンツ／配置／タイポグラフィ／背景」のセクションが展開。
+              <br />
+              色のスウォッチをクリックするとピッカーがポップアップします。
             </p>
           </div>
 
           <div className="space-y-4">
             <h3 className="text-xl font-semibold text-indigo-600">
-              4. JSON保存 / 読み込み
+              5. カードを保存する
             </h3>
             <p>
-              作成済みのカードをエクスポートしてバックアップ！
+              上部ツールバーの「<strong>新規保存</strong>
+              」を押すと、カード一覧にサムネイル付きで追加されます。
               <br />
-              別の環境でもJSONをインポートすればそのまま再編集可能です。
+              既存カードを編集中は「<strong>上書き</strong>」で同じIDに反映。
             </p>
 
             <h3 className="text-xl font-semibold text-indigo-600">
-              5. カード保存
+              6. PNGで書き出す
             </h3>
             <p>
-              「作成してキャプチャ!」でPNG画像を即保存。
-              <br />
-              一覧に自動追加されます。
+              カード画像が単体で欲しいときは「<strong>PNG書き出し</strong>」。
+              <br />※
+              保存とは独立しているので、誤ってPNGがダウンロードされることはありません。
             </p>
 
             <h3 className="text-xl font-semibold text-indigo-600">
-              6. A4並べて出力
+              7. 同じデザインで量産する
             </h3>
             <p>
-              複数カードをまとめてA4サイズに整列してPNG出力可能。
+              カード一覧の下のテーブルでテキスト値だけを書き換えれば、デザインそのままで複数枚作成可能。
               <br />
-              印刷用プロキシカードを一気に作れます。
+              サムネイルをクリックすると過去のカードを呼び出して再編集できます。
+            </p>
+
+            <h3 className="text-xl font-semibold text-indigo-600">
+              8. 自動保存とプロジェクト書き出し
+            </h3>
+            <p>
+              編集内容は自動でブラウザに保存されるので、タブを閉じても続きから再開できます。
+              <br />
+              別環境に移したいときは「<strong>JSON保存</strong>
+              」でプロジェクト全体を書き出せます。
             </p>
           </div>
+        </div>
+
+        <div className="mt-10 p-4 bg-white/70 rounded-md border border-indigo-100">
+          <h4 className="font-semibold text-indigo-700 mb-2 text-sm">
+            💡 便利なTips
+          </h4>
+          <ul className="text-sm text-gray-700 space-y-1 list-disc list-inside">
+            <li>
+              レイヤーの「スタイルコピー／貼付」で、装飾だけを別レイヤーに引き継げます
+            </li>
+            <li>
+              基準位置は3×3グリッドのボタンでビジュアルに選べます（左上・中央・右下など）
+            </li>
+            <li>
+              スマートフォンからも操作可能。狭い画面では縦スタックに自動切替
+            </li>
+            <li>自動保存をリセットしたい場合はカード一覧の「リセット」から</li>
+          </ul>
         </div>
 
         <div className="mt-10 text-center text-sm text-gray-500">
