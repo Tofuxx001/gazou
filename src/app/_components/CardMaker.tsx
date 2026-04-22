@@ -15,6 +15,7 @@ import {
   Trash2,
   FilePen,
   Download,
+  Upload,
   Save,
   Plus,
   Image as ImageIcon,
@@ -738,18 +739,14 @@ export default function CardMaker() {
             </Button>
           </Tooltip>
           <Separator orientation="vertical" size="2" />
-          <Tooltip content="プロジェクト全体をJSONで保存">
-            <IconButton
-              size="2"
-              variant="ghost"
-              onClick={saveJSON}
-              aria-label="JSON保存">
-              <Save size={14} />
-            </IconButton>
+          <Tooltip content="プロジェクト全体（全カード）をJSONファイルで保存">
+            <Button size="2" variant="surface" onClick={saveJSON}>
+              <Download size={14} /> JSON書き出し
+            </Button>
           </Tooltip>
           <Tooltip content="JSONプロジェクトを読み込み">
-            <label className="inline-flex items-center gap-1 px-2.5 py-1 text-sm text-gray-700 hover:bg-gray-100 rounded cursor-pointer transition">
-              JSON読込
+            <label className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-gray-700 bg-white border border-gray-300 hover:bg-gray-50 rounded-md cursor-pointer transition">
+              <Upload size={14} /> JSON読込
               <input
                 type="file"
                 accept="application/json"
