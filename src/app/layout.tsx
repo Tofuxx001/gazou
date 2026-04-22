@@ -23,15 +23,16 @@ export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
   title: "Proxyz | ボドゲ・TCGカード作成ツール",
   description:
-    "Proxyz（プロキシーズ）は、ボードゲームやTCGカードのプロキシ（代替カード）を簡単に作成・保存・印刷できる無料ツールです。",
+    "Proxyz（プロキシーズ）は、自作ボードゲーム・オリジナルTCGのカードをブラウザ上でデザイン・量産・書き出しできる無料ツールです。テキスト・画像レイヤー、回転、ドロップシャドウ、自動保存に対応。",
   keywords: [
     "プロキシカード",
     "TCG作成ツール",
-    "カード印刷",
+    "カードデザイン",
+    "自作TCG",
+    "オリジナルTCG",
+    "ボドゲ制作",
     "ボードゲーム",
     "カードジェネレーター",
-    "PnP作成",
-    "Print & Play",
     "Proxyz",
     "SynapStudio",
   ],
@@ -39,9 +40,9 @@ export const metadata: Metadata = {
   robots: { index: true, follow: true },
   icons: { icon: "/proxy-logo.png" },
   openGraph: {
-    title: "Proxyz | ボドゲ・TCGプロキシ作成ツール",
+    title: "Proxyz | ボドゲ・TCGカード作成ツール",
     description:
-      "ボードゲームやTCGカードのプロキシをWeb上で簡単に作成・保存・印刷できる無料ツール。",
+      "自作ボードゲーム・オリジナルTCGのカードをブラウザでデザイン・量産。テキスト／画像レイヤー、回転、ドロップシャドウ、自動保存、PNG書き出し対応。",
     url: SITE_URL,
     siteName: "Proxyz",
     type: "website",
@@ -49,9 +50,9 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: "summary_large_image",
-    title: "Proxyz | プロキシカード作成ツール",
+    title: "Proxyz | ボドゲ・TCGカード作成ツール",
     description:
-      "TCGやボードゲームの代替カードを手軽に作成・ダウンロード。A4出力対応。",
+      "自作ボードゲーム・オリジナルTCGのカードをブラウザでデザイン・量産。PNG書き出し対応の無料ツール。",
     images: [OG_IMAGE],
   },
 };
