@@ -1,11 +1,35 @@
 "use client";
+import { useEffect } from "react";
 import { AdMaxSlot } from "./_components/AdMaxSlot";
 import Image from "next/image";
 import CardMaker from "./_components/CardMaker";
+import { trackPageView } from "./_components/analytics";
 import logoPng from "../assets/proxyz-logo.png";
 import synaplogo from "../assets/SynapStudio.png";
 
+// タブキー → 計測上のページタイトル
+const TAB_TITLES: Record<string, string> = {
+  edit: "Proxyz / 編集",
+  cardlist: "Proxyz / カード一覧",
+  howto: "Proxyz / 使い方",
+  updates: "Proxyz / お知らせ",
+};
+
+function sendTabPageView() {
+  const rawHash = window.location.hash.replace(/^#/, "");
+  const tabKey = rawHash in TAB_TITLES ? rawHash : "edit";
+  trackPageView(tabKey, TAB_TITLES[tabKey]);
+}
+
 export default function Home() {
+  useEffect(() => {
+    // 初回ロード時の自動 page_view は GA4 が送ってくれるので、
+    // ここでは明示的にハッシュ付きのタブ PV だけを追加で送る。
+    sendTabPageView();
+    window.addEventListener("hashchange", sendTabPageView);
+    return () => window.removeEventListener("hashchange", sendTabPageView);
+  }, []);
+
   return (
     <>
       <header className="w-full h-20 bg-white px-8 flex items-center justify-between shadow-md">
@@ -14,7 +38,7 @@ export default function Home() {
           <div>
             <h1 className="text-xl font-bold text-gray-800">プロキシーズ</h1>
             <p className="text-sm text-gray-600">
-              ボドゲ・TCGプロキシ作成ツール（by SynapStudio） ver.03.2
+              ボドゲ・TCGプロキシ作成ツール（by SynapStudio） ver.02
             </p>
           </div>
         </div>

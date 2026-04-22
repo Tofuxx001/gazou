@@ -35,6 +35,7 @@ import { ColorSwatch } from "./ColorSwatch";
 import { NumberField } from "./NumberField";
 import { Disclosure } from "./Disclosure";
 import { CARD_PRESETS } from "./cardPresets";
+import { trackEvent, trackOnce } from "./analytics";
 
 const AUTOSAVE_KEY = "proxyz:autosave:v1";
 
@@ -237,6 +238,13 @@ export default function CardMaker() {
         if (saved.baseData) setBaseData(saved.baseData);
         if (Array.isArray(saved.layers)) setLayers(saved.layers);
         if (Array.isArray(saved.tableRows)) setTableRows(saved.tableRows);
+        // リピーター指標として autosave 復元を計測
+        trackEvent("autosave_restored", {
+          total_cards: Array.isArray(saved.tableRows)
+            ? saved.tableRows.length
+            : 0,
+          layer_count: Array.isArray(saved.layers) ? saved.layers.length : 0,
+        });
       }
     } catch {}
     setHydrated(true);
@@ -254,6 +262,20 @@ export default function CardMaker() {
     }, 500);
     return () => clearTimeout(handle);
   }, [canvasData, baseData, layers, tableRows, hydrated]);
+
+  // ------------------------------------------------------------
+  // 新機能の初回使用を計測（回転 / ドロップシャドウ）
+  // スライダー操作で連発されないよう trackOnce でセッション 1 回に制限
+  // ------------------------------------------------------------
+  useEffect(() => {
+    if (!hydrated) return;
+    if (layers.some((l) => (l.rotation ?? 0) !== 0)) {
+      trackOnce("rotation_used");
+    }
+    if (layers.some((l) => l.shadowEnabled === true)) {
+      trackOnce("shadow_used");
+    }
+  }, [layers, hydrated]);
 
   // ============================================================
   // Canvas rendering
@@ -440,6 +462,7 @@ export default function CardMaker() {
     );
     if (!blob) {
       showToast("PNG書き出しに失敗しました", "err");
+      trackEvent("png_export_failed");
       return;
     }
     const url = URL.createObjectURL(blob);
@@ -451,7 +474,13 @@ export default function CardMaker() {
     a.click();
     URL.revokeObjectURL(url);
     showToast("PNGを書き出しました");
-  }, [canvasData.cardID]);
+    trackEvent("png_exported", {
+      card_width: canvasData.width,
+      card_height: canvasData.height,
+      layer_count: layers.length,
+      is_saved_card: canvasData.cardID !== -1,
+    });
+  }, [canvasData.cardID, canvasData.width, canvasData.height, layers.length]);
 
   function getThumbnail(): string | undefined {
     const canvas = canvasRef.current;
@@ -493,6 +522,11 @@ export default function CardMaker() {
     };
     setTableRows((prev) => [...prev, newRow]);
     showToast("新規保存しました");
+    trackEvent("card_saved", {
+      method: "new",
+      total_cards: tableRows.length + 1,
+      layer_count: layers.length,
+    });
   }
 
   function saveOverwrite() {
@@ -522,6 +556,11 @@ export default function CardMaker() {
       return updated;
     });
     showToast("上書き保存しました");
+    trackEvent("card_saved", {
+      method: "overwrite",
+      total_cards: tableRows.length,
+      layer_count: layers.length,
+    });
   }
 
   function loadCard(row: TableRow) {
@@ -530,6 +569,7 @@ export default function CardMaker() {
     setLayers(row.layersSnapshot);
     setSelectedLayerId(null);
     showToast(`「${row.name}」を読み込みました`);
+    trackEvent("card_loaded", { card_id: row.id });
   }
 
   function saveJSON() {
@@ -544,6 +584,10 @@ export default function CardMaker() {
     a.click();
     URL.revokeObjectURL(url);
     showToast("プロジェクトを書き出しました");
+    trackEvent("json_exported", {
+      total_cards: tableRows.length,
+      layer_count: layers.length,
+    });
   }
 
   function loadJSON(event: React.ChangeEvent<HTMLInputElement>) {
@@ -564,11 +608,17 @@ export default function CardMaker() {
           setLayers(json.layers);
           setTableRows(json.tableRows);
           showToast("プロジェクトを読み込みました");
+          trackEvent("json_loaded", {
+            total_cards: json.tableRows.length,
+            layer_count: json.layers.length,
+          });
         } else {
           showToast("ファイル形式が正しくありません", "err");
+          trackEvent("json_load_failed", { reason: "invalid_format" });
         }
       } catch {
         showToast("JSONの読み込みに失敗しました", "err");
+        trackEvent("json_load_failed", { reason: "parse_error" });
       }
     };
     reader.readAsText(file);
@@ -631,6 +681,7 @@ export default function CardMaker() {
       setSelectedLayerId(nextId);
       return [...prev, newLayer];
     });
+    trackEvent("layer_added", { type: "text" });
   }
 
   function addImageLayer() {
@@ -672,6 +723,7 @@ export default function CardMaker() {
       setSelectedLayerId(nextId);
       return [...prev, newLayer];
     });
+    trackEvent("layer_added", { type: "image" });
   }
 
   function applyPreset(presetId: string) {
@@ -683,6 +735,12 @@ export default function CardMaker() {
       height: preset.height,
     }));
     showToast(`「${preset.label}」を適用しました`);
+    trackEvent("preset_selected", {
+      preset_id: preset.id,
+      preset_label: preset.label,
+      width: preset.width,
+      height: preset.height,
+    });
   }
 
   // ============================================================
