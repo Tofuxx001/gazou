@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 import Script from "next/script";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
-import { Theme } from "@radix-ui/themes";
+import { AppThemeProvider } from "./_components/AppThemeProvider";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -63,10 +63,36 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="ja">
+    <html lang="ja" suppressHydrationWarning>
+      <head>
+        {/*
+          ページ描画前にテーマクラスを当てる。
+          これが無いと、ダーク設定でも一瞬ライトが表示されてチラつく（FOUC）。
+          React のハイドレーション前に実行する必要があるため
+          next/script ではなく素の script を使っている。
+        */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              (function() {
+                try {
+                  var saved = localStorage.getItem("proxyz:theme:v1");
+                  var isDark = saved === "dark" ||
+                    ((!saved || saved === "system") &&
+                      window.matchMedia("(prefers-color-scheme: dark)").matches);
+                  if (isDark) {
+                    document.documentElement.classList.add("dark");
+                    document.documentElement.style.colorScheme = "dark";
+                  }
+                } catch (e) {}
+              })();
+            `,
+          }}
+        />
+      </head>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
-        <Theme>{children}</Theme>
+        <AppThemeProvider>{children}</AppThemeProvider>
 
         {/* Google Analytics */}
         <Script
