@@ -96,24 +96,13 @@ export default function Home() {
         </h2>
         <div className="bg-indigo-50 border-l-4 border-indigo-400 p-6 rounded-md">
           <h3 className="text-lg font-semibold text-indigo-800">
-            🗓️ 2026年4月 大型アップデート
+            🗓️ 2026年8月7 Ver.03アップデート
           </h3>
-          <p className="mt-2 text-sm text-gray-700 dark:text-gray-200">
-            UI全体を刷新し、より直感的に・より速く作れるエディタになりました。
-          </p>
           <ul className="list-disc list-inside mt-3 text-gray-800 dark:text-gray-100 space-y-1">
-            <li>🪟 <strong>UIを全面リニューアル</strong>。左に設定、中央にプレビュー、右にレイヤーパネルの3ペイン構成に</li>
-            <li>📐 <strong>カードサイズプリセット</strong>を搭載。TCG標準・ポーカー・タロット等を一発適用</li>
-            <li>💾 <strong>自動保存</strong>に対応。ブラウザを閉じても作業内容が消えません</li>
-            <li>🎨 <strong>カラーピッカーをポップオーバー化</strong>。色のスウォッチをクリックすると展開、画面の圧迫感を解消</li>
-            <li>🖼 <strong>カード一覧をサムネイル表示</strong>に。保存したカードを画像で見て選べます</li>
-            <li>📑 <strong>レイヤー詳細をセクション分け</strong>（コンテンツ／配置／タイポグラフィ／背景）</li>
-            <li>🎯 <strong>位置指定がビジュアル化</strong>。3×3のグリッドで基準位置を選べます</li>
-            <li>📤 <strong>「カード保存」と「PNG書き出し」を分離</strong>。誤操作で無駄なPNGがダウンロードされなくなりました</li>
-            <li>📱 <strong>スマートフォン対応</strong>。狭い画面でも縦スタックで操作可能</li>
-            <li>✨ <strong>トースト通知</strong>。保存・読込時に画面右下で結果を確認できます</li>
-            <li>🛡 <strong>削除前の確認ダイアログ</strong>。誤って消すのを防止</li>
-            <li>♿ <strong>アクセシビリティ改善</strong>。ラベルの関連付け、キーボード操作対応</li>
+            <li>🔳文字背景にベベル・エンボス追加！！ </li>
+            <li>🆎フォント3種類追加!!  </li>
+            <li>☀️🌙ライト・ダークモード追加   </li>
+            <li>🌀カードの並び替え機能実装！！   </li>
           </ul>
           <details className="mt-4 text-sm text-gray-600 dark:text-gray-300">
             <summary className="cursor-pointer hover:text-indigo-700">過去のアップデート</summary>
