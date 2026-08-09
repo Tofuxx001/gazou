@@ -26,6 +26,9 @@ import {
   Layers,
   AlertCircle,
   RotateCcw,
+  FileCode,
+  Boxes,
+  Wrench,
 } from "lucide-react";
 import {
   SortableContext,
@@ -41,6 +44,16 @@ import { Disclosure } from "./Disclosure";
 import { CARD_PRESETS } from "./cardPresets";
 import { FONT_PRESETS, DEFAULT_FONT_ID, getFontFamily } from "./fontPresets";
 import { trackEvent, trackOnce } from "./analytics";
+import { downloadBlob } from "./zipWriter";
+import { buildStandaloneHtml, buildFontMap } from "./exportHtml";
+import {
+  buildUnityCardsPackage,
+  buildImporterZip,
+  UNITY_COMPONENTS_FOR_IMAGE,
+  UNITY_COMPONENTS_FOR_TEXT,
+  type UnityMode,
+  type UnityComponentKind,
+} from "./exportUnity";
 
 const AUTOSAVE_KEY = "proxyz:autosave:v1";
 
@@ -94,6 +107,9 @@ type Layer = {
   bevelStyle?: "raised" | "inset";
   bevelSize?: number; // px — 面取りの太さ
   bevelIntensity?: number; // 0..1 — ハイライトと影の強さ
+  // === Unity 書き出し ===
+  /** このレイヤーを Unity のどのコンポーネントとして書き出すか */
+  unityComponent?: UnityComponentKind;
 };
 
 type CanvasData = {
@@ -127,9 +143,15 @@ type TableRow = {
 };
 
 const POSITION_PRESETS: Layer["PositionPreset"][] = [
-  "top-left", "top-center", "top-right",
-  "center-left", "center", "center-right",
-  "bottom-left", "bottom-center", "bottom-right",
+  "top-left",
+  "top-center",
+  "top-right",
+  "center-left",
+  "center",
+  "center-right",
+  "bottom-left",
+  "bottom-center",
+  "bottom-right",
 ];
 
 export default function CardMaker() {
@@ -161,7 +183,10 @@ export default function CardMaker() {
   const [selectedLayerId, setSelectedLayerId] = useState<string | null>(null);
   const [copiedStyle, setCopiedStyle] = useState<Partial<Layer> | null>(null);
   const [hydrated, setHydrated] = useState(false);
-  const [toast, setToast] = useState<{ msg: string; type: "ok" | "err" } | null>(null);
+  const [toast, setToast] = useState<{
+    msg: string;
+    type: "ok" | "err";
+  } | null>(null);
 
   // 削除確認ダイアログ（カード / レイヤー共通）
   const [confirmState, setConfirmState] = useState<{
@@ -169,6 +194,10 @@ export default function CardMaker() {
     message: string;
     onConfirm: () => void;
   } | null>(null);
+
+  // Unity 書き出しモード（3D: Quad+TMP / 2D: Sprite+Canvas UI）
+  const [unityMode, setUnityMode] = useState<UnityMode>("2d");
+  const [exporting, setExporting] = useState(false);
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -194,7 +223,11 @@ export default function CardMaker() {
 
   function drawRoundedRect(
     ctx: CanvasRenderingContext2D,
-    x: number, y: number, width: number, height: number, radius: number
+    x: number,
+    y: number,
+    width: number,
+    height: number,
+    radius: number
   ) {
     const r = Math.min(radius, width / 2, height / 2);
     ctx.beginPath();
@@ -217,8 +250,14 @@ export default function CardMaker() {
    */
   function drawBevel(
     ctx: CanvasRenderingContext2D,
-    x: number, y: number, width: number, height: number, radius: number,
-    size: number, intensity: number, style: "raised" | "inset"
+    x: number,
+    y: number,
+    width: number,
+    height: number,
+    radius: number,
+    size: number,
+    intensity: number,
+    style: "raised" | "inset"
   ) {
     if (size <= 0 || intensity <= 0) return;
 
@@ -262,7 +301,10 @@ export default function CardMaker() {
 
   function getLayerPosition(
     preset: Layer["PositionPreset"],
-    baseX: number, baseY: number, baseW: number, baseH: number
+    baseX: number,
+    baseY: number,
+    baseW: number,
+    baseH: number
   ): [number, number] {
     const posMap: Record<Layer["PositionPreset"], [number, number]> = {
       "top-left": [0, 0],
@@ -293,7 +335,9 @@ export default function CardMaker() {
         if (Array.isArray(saved.tableRows)) setTableRows(saved.tableRows);
         // リピーター指標として autosave 復元を計測
         trackEvent("autosave_restored", {
-          total_cards: Array.isArray(saved.tableRows) ? saved.tableRows.length : 0,
+          total_cards: Array.isArray(saved.tableRows)
+            ? saved.tableRows.length
+            : 0,
           layer_count: Array.isArray(saved.layers) ? saved.layers.length : 0,
         });
       }
@@ -341,11 +385,24 @@ export default function CardMaker() {
     if (!ctx) return;
 
     const drawAll = async () => {
-      // Web フォント読み込み完了を待つ。
-      // 待たないと初回描画がフォールバック（sans-serif）になり、
-      // PNG 書き出しにもそのまま焼き付いてしまう。
-      if (typeof document !== "undefined" && document.fonts?.ready) {
+      // Web フォントを明示的に読み込んでから描画する。
+      // canvas の ctx.font はフォントのダウンロードを発動しないため、
+      // document.fonts.ready を待つだけでは「未リクエストのフォント」が
+      // 永遠に読み込まれず、フォールバック描画が PNG に焼き付く。
+      // load() に実際に描く文字列を渡すことで、unicode-range 分割された
+      // 日本語サブセットも確実に取得される。
+      if (typeof document !== "undefined" && document.fonts) {
         try {
+          const loads: Promise<unknown>[] = [];
+          for (const layer of layers) {
+            if (layer.type !== "text" || !layer.value || !layer.visible)
+              continue;
+            const spec = `${layer.fontStyle === "Bold" ? "bold " : ""}${
+              layer.fontSize
+            }px ${getFontFamily(layer.fontFamily)}`;
+            loads.push(document.fonts.load(spec, layer.value).catch(() => []));
+          }
+          await Promise.all(loads);
           await document.fonts.ready;
         } catch {
           // フォント API 未対応環境ではそのまま描画を続行
@@ -353,6 +410,22 @@ export default function CardMaker() {
       }
 
       ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      // カード全体を外周の角丸（canvasData.radius）でクリップする。
+      // 角丸の外側は透明として書き出されるので、PNG が物理カードの
+      // 角丸カットと同じ見た目になる。レイヤーが角にかかる場合も
+      // 実物どおりに切り落とされる。
+      ctx.save();
+      drawRoundedRect(
+        ctx,
+        0,
+        0,
+        canvas.width,
+        canvas.height,
+        canvasData.radius
+      );
+      ctx.clip();
+
       ctx.fillStyle = canvasData.bgColor;
       ctx.fillRect(0, 0, canvas.width, canvas.height);
 
@@ -369,8 +442,12 @@ export default function CardMaker() {
           ctx.clip();
           ctx.drawImage(
             img,
-            baseX + (baseData.imagePositionX / 100) * baseW - (baseData.imageWidth / 200) * baseW,
-            baseY + (baseData.imagePositionY / 100) * baseH - (baseData.imageHight / 200) * baseH,
+            baseX +
+              (baseData.imagePositionX / 100) * baseW -
+              (baseData.imageWidth / 200) * baseW,
+            baseY +
+              (baseData.imagePositionY / 100) * baseH -
+              (baseData.imageHight / 200) * baseH,
             (baseData.imageWidth / 100) * baseW,
             (baseData.imageHight / 100) * baseH
           );
@@ -387,7 +464,13 @@ export default function CardMaker() {
 
       for (const layer of layers) {
         if (!layer.visible) continue;
-        const [posX, posY] = getLayerPosition(layer.PositionPreset, baseX, baseY, baseW, baseH);
+        const [posX, posY] = getLayerPosition(
+          layer.PositionPreset,
+          baseX,
+          baseY,
+          baseW,
+          baseH
+        );
         const x = posX + layer.positionAdjX;
         const y = posY + layer.positionAdjY;
 
@@ -399,12 +482,16 @@ export default function CardMaker() {
             ctx.rotate((layer.rotation * Math.PI) / 180);
           }
 
-          ctx.font = `${layer.fontStyle === "Bold" ? "bold " : ""}${layer.fontSize}px ${getFontFamily(layer.fontFamily)}`;
+          ctx.font = `${layer.fontStyle === "Bold" ? "bold " : ""}${
+            layer.fontSize
+          }px ${getFontFamily(layer.fontFamily)}`;
           ctx.textAlign = layer.textAlign;
           ctx.textBaseline = "middle";
           const lines = layer.value.split("\n");
           const lineHeight = layer.fontSize * 1.2;
-          const maxLineWidth = Math.max(...lines.map((line) => ctx.measureText(line).width));
+          const maxLineWidth = Math.max(
+            ...lines.map((line) => ctx.measureText(line).width)
+          );
           const textW = maxLineWidth + layer.textPadding * 2;
           const textH = lineHeight * lines.length + layer.textPadding * 2;
 
@@ -424,7 +511,12 @@ export default function CardMaker() {
             // ベベル / エンボス — 背景の塗りの上、文字の下に描く
             if (layer.bevelEnabled) {
               drawBevel(
-                ctx, rectX, rectY, textW, textH, layer.bgRadius,
+                ctx,
+                rectX,
+                rectY,
+                textW,
+                textH,
+                layer.bgRadius,
                 layer.bevelSize ?? 4,
                 layer.bevelIntensity ?? 0.6,
                 layer.bevelStyle ?? "raised"
@@ -434,7 +526,10 @@ export default function CardMaker() {
 
           // 文字 — 影を適用
           if (layer.shadowEnabled) {
-            ctx.shadowColor = hexToRGBA(layer.shadowColor ?? "#000000", layer.shadowOpacity ?? 0.5);
+            ctx.shadowColor = hexToRGBA(
+              layer.shadowColor ?? "#000000",
+              layer.shadowOpacity ?? 0.5
+            );
             ctx.shadowBlur = layer.shadowBlur ?? 4;
             ctx.shadowOffsetX = layer.shadowOffsetX ?? 2;
             ctx.shadowOffsetY = layer.shadowOffsetY ?? 2;
@@ -467,18 +562,35 @@ export default function CardMaker() {
             // クリップ後だと影がクリップ範囲で切れてしまうため
             if (layer.shadowEnabled) {
               ctx.save();
-              ctx.shadowColor = hexToRGBA(layer.shadowColor ?? "#000000", layer.shadowOpacity ?? 0.5);
+              ctx.shadowColor = hexToRGBA(
+                layer.shadowColor ?? "#000000",
+                layer.shadowOpacity ?? 0.5
+              );
               ctx.shadowBlur = layer.shadowBlur ?? 4;
               ctx.shadowOffsetX = layer.shadowOffsetX ?? 2;
               ctx.shadowOffsetY = layer.shadowOffsetY ?? 2;
               ctx.fillStyle = "rgba(0, 0, 0, 1)";
-              drawRoundedRect(ctx, -imgW / 2, -imgH / 2, imgW, imgH, layer.bgRadius);
+              drawRoundedRect(
+                ctx,
+                -imgW / 2,
+                -imgH / 2,
+                imgW,
+                imgH,
+                layer.bgRadius
+              );
               ctx.fill();
               ctx.restore();
             }
 
             // 画像本体（角丸クリップ付き）
-            drawRoundedRect(ctx, -imgW / 2, -imgH / 2, imgW, imgH, layer.bgRadius);
+            drawRoundedRect(
+              ctx,
+              -imgW / 2,
+              -imgH / 2,
+              imgW,
+              imgH,
+              layer.bgRadius
+            );
             ctx.clip();
             ctx.globalAlpha = layer.opacity ?? 1;
             ctx.drawImage(img, -imgW / 2, -imgH / 2, imgW, imgH);
@@ -487,6 +599,9 @@ export default function CardMaker() {
           } catch {}
         }
       }
+
+      // 外周角丸クリップの解除
+      ctx.restore();
     };
 
     drawAll();
@@ -509,7 +624,9 @@ export default function CardMaker() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `card-${canvasData.cardID === -1 ? "draft" : canvasData.cardID}.png`;
+    a.download = `card-${
+      canvasData.cardID === -1 ? "draft" : canvasData.cardID
+    }.png`;
     a.click();
     URL.revokeObjectURL(url);
     showToast("PNGを書き出しました");
@@ -541,7 +658,8 @@ export default function CardMaker() {
   }
 
   function saveAsNew() {
-    const nextId = tableRows.reduce((max, row) => Math.max(max, Number(row.id)), 0) + 1;
+    const nextId =
+      tableRows.reduce((max, row) => Math.max(max, Number(row.id)), 0) + 1;
     const newCanvas = { ...canvasData, cardID: nextId };
     setCanvasData(newCanvas);
 
@@ -577,7 +695,9 @@ export default function CardMaker() {
 
     const updatedRow: TableRow = {
       id: existingId,
-      name: tableRows.find((r) => r.id === existingId)?.name ?? `カード${existingId}`,
+      name:
+        tableRows.find((r) => r.id === existingId)?.name ??
+        `カード${existingId}`,
       thumbnail: getThumbnail(),
       values: currentValues,
       layersSnapshot: structuredClone(layers),
@@ -610,7 +730,9 @@ export default function CardMaker() {
 
   function saveJSON() {
     const data = { canvasData, baseData, layers, tableRows };
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+    const blob = new Blob([JSON.stringify(data, null, 2)], {
+      type: "application/json",
+    });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
@@ -624,6 +746,93 @@ export default function CardMaker() {
     });
   }
 
+  /** 現在のカード名（未保存なら仮名） */
+  function currentCardName(): string {
+    const named = layers.find((l) => l.type === "text" && l.value.trim());
+    return (
+      (named?.value.split("\n")[0] ?? "").trim() ||
+      `card-${canvasData.cardID === -1 ? "draft" : canvasData.cardID}`
+    );
+  }
+
+  /** HTML Canvas 書き出し — 単体で完結する .html */
+  function exportHtml() {
+    try {
+      const html = buildStandaloneHtml({
+        cardName: currentCardName(),
+        canvasData,
+        baseData,
+        layers,
+        fontMap: buildFontMap(),
+      });
+      downloadBlob(
+        new Blob([html], { type: "text/html;charset=utf-8" }),
+        `${currentCardName()}.html`
+      );
+      showToast("HTMLを書き出しました");
+      trackEvent("html_exported", { layer_count: layers.length });
+    } catch {
+      showToast("HTML書き出しに失敗しました", "err");
+      trackEvent("html_export_failed");
+    }
+  }
+
+  /** Unity 書き出し — カード一覧を一括で ZIP（card.json + PNG）に */
+  async function exportUnity() {
+    setExporting(true);
+    try {
+      // カード一覧があれば全カード、無ければ現在の編集内容を 1 枚として書き出す
+      const cards =
+        tableRows.length > 0
+          ? tableRows.map((row) => ({
+              cardName: row.name?.trim() || `card-${row.id}`,
+              canvasData: row.canvasSnapshot,
+              baseData: row.baseSnapshot,
+              layers: row.layersSnapshot,
+            }))
+          : [
+              {
+                cardName: currentCardName(),
+                canvasData,
+                baseData,
+                layers,
+              },
+            ];
+
+      const blob = await buildUnityCardsPackage({
+        cards,
+        mode: unityMode,
+        // Canvas 描画と完全に同じ font 指定を渡して実測をそろえる
+        fontOf: (l) =>
+          `${l.fontStyle === "Bold" ? "bold " : ""}${
+            l.fontSize
+          }px ${getFontFamily(l.fontFamily)}`,
+      });
+      downloadBlob(blob, "proxyz-cards-unity.zip");
+      showToast(`${cards.length}枚のカードを書き出しました`);
+      trackEvent("unity_exported", {
+        mode: unityMode,
+        card_count: cards.length,
+      });
+    } catch {
+      showToast("Unity書き出しに失敗しました", "err");
+      trackEvent("unity_export_failed", { mode: unityMode });
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  /** Unity 取込ツール（初回のみ必要）の単体ダウンロード */
+  function downloadImporter() {
+    try {
+      downloadBlob(buildImporterZip(), "ProxyzImporter.zip");
+      showToast("取込ツールをダウンロードしました");
+      trackEvent("unity_importer_downloaded");
+    } catch {
+      showToast("ダウンロードに失敗しました", "err");
+    }
+  }
+
   function loadJSON(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -631,7 +840,12 @@ export default function CardMaker() {
     reader.onload = () => {
       try {
         const json = JSON.parse(reader.result as string);
-        if (json.canvasData && json.baseData && Array.isArray(json.layers) && Array.isArray(json.tableRows)) {
+        if (
+          json.canvasData &&
+          json.baseData &&
+          Array.isArray(json.layers) &&
+          Array.isArray(json.tableRows)
+        ) {
           setCanvasData(json.canvasData);
           setBaseData(json.baseData);
           setLayers(json.layers);
@@ -690,7 +904,8 @@ export default function CardMaker() {
     const file = e.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = () => setBaseData((prev) => ({ ...prev, imageSrc: reader.result as string }));
+    reader.onload = () =>
+      setBaseData((prev) => ({ ...prev, imageSrc: reader.result as string }));
     reader.readAsDataURL(file);
   }
 
@@ -699,14 +914,26 @@ export default function CardMaker() {
       const nextId = `${Date.now()}`;
       const maxZ = Math.max(...prev.map((l) => l.zIndex), 0);
       const newLayer: Layer = {
-        id: nextId, type: "text",
+        id: nextId,
+        type: "text",
         title: `テキスト${prev.filter((l) => l.type === "text").length + 1}`,
-        value: "", visible: true, zIndex: maxZ + 1,
-        fontStyle: "normal", fontFamily: DEFAULT_FONT_ID, fontSize: 32, textAlign: "center",
-        fontColor: "#1a1a1a", fontOutline: "#ffffff",
-        PositionPreset: "center", positionAdjX: 0, positionAdjY: 0,
-        backGround: false, textPadding: 10,
-        bgColor: "#ffffff", bgOpacity: 1, bgRadius: 4,
+        value: "",
+        visible: true,
+        zIndex: maxZ + 1,
+        fontStyle: "normal",
+        fontFamily: DEFAULT_FONT_ID,
+        fontSize: 32,
+        textAlign: "center",
+        fontColor: "#1a1a1a",
+        fontOutline: "#ffffff",
+        PositionPreset: "center",
+        positionAdjX: 0,
+        positionAdjY: 0,
+        backGround: false,
+        textPadding: 10,
+        bgColor: "#ffffff",
+        bgOpacity: 1,
+        bgRadius: 4,
         rotation: 0,
         shadowEnabled: false,
         shadowColor: "#000000",
@@ -726,16 +953,30 @@ export default function CardMaker() {
       const nextId = `${Date.now()}`;
       const maxZ = Math.max(...prev.map((l) => l.zIndex), 0);
       const newLayer: Layer = {
-        id: nextId, type: "image",
+        id: nextId,
+        type: "image",
         title: `画像${prev.filter((l) => l.type === "image").length + 1}`,
-        value: "", visible: true, zIndex: maxZ + 1,
-        fontStyle: "normal", fontFamily: DEFAULT_FONT_ID, fontSize: 20, textAlign: "left",
-        fontColor: "#000000", fontOutline: "#000000",
-        PositionPreset: "center", positionAdjX: 0, positionAdjY: 0,
-        backGround: false, textPadding: 0,
-        bgColor: "#ffffff", bgOpacity: 1, bgRadius: 0,
-        imageWidth: 60, imageHeight: 60,
-        fitStyle: "contain", opacity: 1,
+        value: "",
+        visible: true,
+        zIndex: maxZ + 1,
+        fontStyle: "normal",
+        fontFamily: DEFAULT_FONT_ID,
+        fontSize: 20,
+        textAlign: "left",
+        fontColor: "#000000",
+        fontOutline: "#000000",
+        PositionPreset: "center",
+        positionAdjX: 0,
+        positionAdjY: 0,
+        backGround: false,
+        textPadding: 0,
+        bgColor: "#ffffff",
+        bgOpacity: 1,
+        bgRadius: 0,
+        imageWidth: 60,
+        imageHeight: 60,
+        fitStyle: "contain",
+        opacity: 1,
         rotation: 0,
         shadowEnabled: false,
         shadowColor: "#000000",
@@ -753,7 +994,11 @@ export default function CardMaker() {
   function applyPreset(presetId: string) {
     const preset = CARD_PRESETS.find((p) => p.id === presetId);
     if (!preset) return;
-    setCanvasData((prev) => ({ ...prev, width: preset.width, height: preset.height }));
+    setCanvasData((prev) => ({
+      ...prev,
+      width: preset.width,
+      height: preset.height,
+    }));
     showToast(`「${preset.label}」を適用しました`);
     trackEvent("preset_selected", {
       preset_id: preset.id,
@@ -770,7 +1015,9 @@ export default function CardMaker() {
   const selectedLayer = layers.find((l) => l.id === selectedLayerId) ?? null;
   const updateSelectedLayer = (patch: Partial<Layer>) => {
     if (!selectedLayerId) return;
-    setLayers((prev) => prev.map((l) => (l.id === selectedLayerId ? { ...l, ...patch } : l)));
+    setLayers((prev) =>
+      prev.map((l) => (l.id === selectedLayerId ? { ...l, ...patch } : l))
+    );
   };
 
   // ============================================================
@@ -789,15 +1036,16 @@ export default function CardMaker() {
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <Tooltip content="現在のカードをカード一覧に保存">
-            <Button
-              size="2"
-              variant="solid"
-              color="indigo"
-              onClick={saveAsNew}>
+            <Button size="2" variant="solid" color="indigo" onClick={saveAsNew}>
               <Save size={14} /> 新規保存
             </Button>
           </Tooltip>
-          <Tooltip content={canOverwrite ? "カード一覧の同IDを上書き" : "新規保存してから上書き可能"}>
+          <Tooltip
+            content={
+              canOverwrite
+                ? "カード一覧の同IDを上書き"
+                : "新規保存してから上書き可能"
+            }>
             <Button
               size="2"
               variant="soft"
@@ -810,7 +1058,40 @@ export default function CardMaker() {
           <Separator orientation="vertical" size="2" />
           <Tooltip content="現在のカードをPNG画像でダウンロード">
             <Button size="2" variant="surface" onClick={exportCanvasPNG}>
-              <Download size={14} /> PNG書き出し
+              <Download size={14} /> PNG
+            </Button>
+          </Tooltip>
+          <Tooltip content="単体で開ける HTML ファイルとして書き出し（画像は埋め込み）">
+            <Button size="2" variant="surface" onClick={exportHtml}>
+              <FileCode size={14} /> HTML
+            </Button>
+          </Tooltip>
+          <Tooltip
+            content={`カード一覧の全カードを Unity 用に一括書き出し（現在: ${
+              unityMode === "3d" ? "3D" : "2D"
+            }モード）`}>
+            <Button
+              size="2"
+              variant="surface"
+              onClick={exportUnity}
+              disabled={exporting}>
+              <Boxes size={14} /> {exporting ? "書き出し中…" : "Unity"}
+            </Button>
+          </Tooltip>
+          <Tooltip content="Unity書き出しのモード切り替え">
+            <Select.Root
+              value={unityMode}
+              onValueChange={(v) => setUnityMode(v as UnityMode)}>
+              <Select.Trigger variant="ghost" />
+              <Select.Content>
+                <Select.Item value="2d">2D（Sprite + Canvas）</Select.Item>
+                <Select.Item value="3d">3D（Quad + TMP）</Select.Item>
+              </Select.Content>
+            </Select.Root>
+          </Tooltip>
+          <Tooltip content="Unity取込ツール（初回のみ必要。Assets に 1 回入れれば OK）">
+            <Button size="2" variant="ghost" onClick={downloadImporter}>
+              <Wrench size={14} /> 取込ツール
             </Button>
           </Tooltip>
           <Separator orientation="vertical" size="2" />
@@ -822,7 +1103,12 @@ export default function CardMaker() {
           <Tooltip content="JSONプロジェクトを読み込み">
             <label className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 hover:bg-gray-50 rounded-md cursor-pointer transition">
               <Upload size={14} /> JSON読込
-              <input type="file" accept="application/json" onChange={loadJSON} className="hidden" />
+              <input
+                type="file"
+                accept="application/json"
+                onChange={loadJSON}
+                className="hidden"
+              />
             </label>
           </Tooltip>
         </div>
@@ -830,7 +1116,6 @@ export default function CardMaker() {
 
       {/* ===== Main split — モバイルは縦, デスクトップは [sidebar | canvas | layers] ===== */}
       <div className="grid grid-cols-1 lg:grid-cols-[280px_1fr_320px] gap-4 p-4">
-
         {/* ========== Left sidebar: プロジェクト設定 ========== */}
         <aside className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 p-4 space-y-5 lg:max-h-[calc(100vh-120px)] lg:overflow-y-auto">
           <div>
@@ -838,46 +1123,71 @@ export default function CardMaker() {
               <Settings2 size={12} /> カードサイズ
             </h3>
             <Select.Root onValueChange={applyPreset}>
-              <Select.Trigger placeholder="プリセットから選ぶ…" className="w-full" />
+              <Select.Trigger
+                placeholder="プリセットから選ぶ…"
+                className="w-full"
+              />
               <Select.Content>
                 <Select.Group>
                   <Select.Label>TCGサイズ</Select.Label>
-                  {CARD_PRESETS.filter((p) => p.category === "TCGサイズ").map((p) => (
-                    <Select.Item key={p.id} value={p.id}>{p.label}</Select.Item>
-                  ))}
+                  {CARD_PRESETS.filter((p) => p.category === "TCGサイズ").map(
+                    (p) => (
+                      <Select.Item key={p.id} value={p.id}>
+                        {p.label}
+                      </Select.Item>
+                    )
+                  )}
                 </Select.Group>
                 <Select.Group>
                   <Select.Label>ボドゲサイズ</Select.Label>
-                  {CARD_PRESETS.filter((p) => p.category === "ボドゲサイズ").map((p) => (
-                    <Select.Item key={p.id} value={p.id}>{p.label}</Select.Item>
+                  {CARD_PRESETS.filter(
+                    (p) => p.category === "ボドゲサイズ"
+                  ).map((p) => (
+                    <Select.Item key={p.id} value={p.id}>
+                      {p.label}
+                    </Select.Item>
                   ))}
                 </Select.Group>
                 <Select.Group>
                   <Select.Label>その他</Select.Label>
-                  {CARD_PRESETS.filter((p) => p.category === "その他").map((p) => (
-                    <Select.Item key={p.id} value={p.id}>{p.label}</Select.Item>
-                  ))}
+                  {CARD_PRESETS.filter((p) => p.category === "その他").map(
+                    (p) => (
+                      <Select.Item key={p.id} value={p.id}>
+                        {p.label}
+                      </Select.Item>
+                    )
+                  )}
                 </Select.Group>
               </Select.Content>
             </Select.Root>
             <div className="grid grid-cols-2 gap-2 mt-3">
               <NumberField
-                label="幅" unit="px" value={canvasData.width}
+                label="幅"
+                unit="px"
+                value={canvasData.width}
                 onChange={(n) => setCanvasData((p) => ({ ...p, width: n }))}
               />
               <NumberField
-                label="高さ" unit="px" value={canvasData.height}
+                label="高さ"
+                unit="px"
+                value={canvasData.height}
                 onChange={(n) => setCanvasData((p) => ({ ...p, height: n }))}
               />
               <NumberField
-                label="角丸" unit="px" value={canvasData.radius}
+                label="角丸"
+                unit="px"
+                value={canvasData.radius}
                 onChange={(n) => setCanvasData((p) => ({ ...p, radius: n }))}
               />
               <div className="flex flex-col gap-1">
-                <span className="text-xs text-gray-600 dark:text-gray-300">背景色</span>
+                <span className="text-xs text-gray-600 dark:text-gray-300">
+                  背景色
+                </span>
                 <ColorSwatch
                   value={canvasData.bgColor}
-                  onChange={(c) => setCanvasData((p) => ({ ...p, bgColor: c as Color }))}
+                  onChange={(c) =>
+                    setCanvasData((p) => ({ ...p, bgColor: c as Color }))
+                  }
                 />
               </div>
             </div>
@@ -891,31 +1201,48 @@ export default function CardMaker() {
             </h3>
             <div className="grid grid-cols-2 gap-2">
               <NumberField
-                label="幅" unit="%" value={baseData.width} min={0} max={100}
+                label="幅"
+                unit="%"
+                value={baseData.width}
+                min={0}
+                max={100}
                 onChange={(n) => setBaseData((p) => ({ ...p, width: n }))}
               />
               <NumberField
-                label="高さ" unit="%" value={baseData.height} min={0} max={100}
+                label="高さ"
+                unit="%"
+                value={baseData.height}
+                min={0}
+                max={100}
                 onChange={(n) => setBaseData((p) => ({ ...p, height: n }))}
               />
               <NumberField
-                label="角丸" unit="px" value={baseData.radius}
+                label="角丸"
+                unit="px"
+                value={baseData.radius}
                 onChange={(n) => setBaseData((p) => ({ ...p, radius: n }))}
               />
               <div className="flex flex-col gap-1">
-                <span className="text-xs text-gray-600 dark:text-gray-300">背景色</span>
+                <span className="text-xs text-gray-600 dark:text-gray-300">
+                  背景色
+                </span>
                 <ColorSwatch
                   value={baseData.bgColor}
-                  onChange={(c) => setBaseData((p) => ({ ...p, bgColor: c as Color }))}
+                  onChange={(c) =>
+                    setBaseData((p) => ({ ...p, bgColor: c as Color }))
+                  }
                 />
               </div>
             </div>
 
             <div className="mt-3 space-y-2">
               <label className="block">
-                <span className="text-xs text-gray-600 dark:text-gray-300 block mb-1">背景画像</span>
+                <span className="text-xs text-gray-600 dark:text-gray-300 block mb-1">
+                  背景画像
+                </span>
                 <input
-                  type="file" accept="image/*"
+                  type="file"
+                  accept="image/*"
                   onChange={handleBaseImageUpload}
                   className="text-xs file:mr-2 file:py-1 file:px-2 file:rounded file:border-0 file:bg-gray-100 file:text-gray-700 hover:file:bg-gray-200 file:cursor-pointer"
                 />
@@ -924,25 +1251,45 @@ export default function CardMaker() {
                 <>
                   <div className="grid grid-cols-2 gap-2">
                     <NumberField
-                      label="画像幅" unit="%" value={baseData.imageWidth}
-                      onChange={(n) => setBaseData((p) => ({ ...p, imageWidth: n }))}
+                      label="画像幅"
+                      unit="%"
+                      value={baseData.imageWidth}
+                      onChange={(n) =>
+                        setBaseData((p) => ({ ...p, imageWidth: n }))
+                      }
                     />
                     <NumberField
-                      label="画像高さ" unit="%" value={baseData.imageHight}
-                      onChange={(n) => setBaseData((p) => ({ ...p, imageHight: n }))}
+                      label="画像高さ"
+                      unit="%"
+                      value={baseData.imageHight}
+                      onChange={(n) =>
+                        setBaseData((p) => ({ ...p, imageHight: n }))
+                      }
                     />
                     <NumberField
-                      label="位置X" unit="%" value={baseData.imagePositionX}
-                      onChange={(n) => setBaseData((p) => ({ ...p, imagePositionX: n }))}
+                      label="位置X"
+                      unit="%"
+                      value={baseData.imagePositionX}
+                      onChange={(n) =>
+                        setBaseData((p) => ({ ...p, imagePositionX: n }))
+                      }
                     />
                     <NumberField
-                      label="位置Y" unit="%" value={baseData.imagePositionY}
-                      onChange={(n) => setBaseData((p) => ({ ...p, imagePositionY: n }))}
+                      label="位置Y"
+                      unit="%"
+                      value={baseData.imagePositionY}
+                      onChange={(n) =>
+                        setBaseData((p) => ({ ...p, imagePositionY: n }))
+                      }
                     />
                   </div>
                   <Button
-                    size="1" color="red" variant="soft"
-                    onClick={() => setBaseData((p) => ({ ...p, imageSrc: "null" }))}>
+                    size="1"
+                    color="red"
+                    variant="soft"
+                    onClick={() =>
+                      setBaseData((p) => ({ ...p, imageSrc: "null" }))
+                    }>
                     <Trash2 size={12} /> 背景画像を外す
                   </Button>
                 </>
@@ -972,9 +1319,12 @@ export default function CardMaker() {
               height={canvasData.height}
               className="shadow-2xl max-w-full max-h-[70vh] object-contain"
               style={{
-                borderRadius: `${canvasData.radius * (Math.min(1, 600 / canvasData.width))}px`,
+                borderRadius: `${
+                  canvasData.radius * Math.min(1, 600 / canvasData.width)
+                }px`,
                 backgroundColor: canvasData.bgColor,
-                width: "auto", height: "auto",
+                width: "auto",
+                height: "auto",
                 maxWidth: "100%",
               }}
             />
@@ -995,10 +1345,16 @@ export default function CardMaker() {
               </h3>
               {tableRows.length > 0 && (
                 <Button
-                  size="1" variant="ghost" color="red"
+                  size="1"
+                  variant="ghost"
+                  color="red"
                   onClick={() => {
-                    if (confirm("自動保存データを消去して初期状態に戻しますか？")) {
-                      try { localStorage.removeItem(AUTOSAVE_KEY); } catch {}
+                    if (
+                      confirm("自動保存データを消去して初期状態に戻しますか？")
+                    ) {
+                      try {
+                        localStorage.removeItem(AUTOSAVE_KEY);
+                      } catch {}
                       location.reload();
                     }
                   }}>
@@ -1011,7 +1367,9 @@ export default function CardMaker() {
               <div className="text-center py-12 text-gray-400 dark:text-gray-500 text-sm">
                 <Layers size={32} className="mx-auto mb-2 opacity-30" />
                 まだカードが保存されていません
-                <div className="mt-1 text-xs">「新規保存」を押すとここに追加されます</div>
+                <div className="mt-1 text-xs">
+                  「新規保存」を押すとここに追加されます
+                </div>
               </div>
             ) : (
               <>
@@ -1043,50 +1401,75 @@ export default function CardMaker() {
                     <table className="w-full text-xs border-collapse">
                       <thead>
                         <tr className="bg-gray-50 dark:bg-gray-800">
-                          <th className="border border-gray-200 dark:border-gray-700 px-2 py-1.5 font-medium text-gray-600 dark:text-gray-300 text-left">読込</th>
-                          <th className="border border-gray-200 dark:border-gray-700 px-2 py-1.5 font-medium text-gray-600 dark:text-gray-300 text-left">ID</th>
-                          {layers.filter((l) => l.type === "text").map((l) => (
-                            <th key={l.id} className="border border-gray-200 dark:border-gray-700 px-2 py-1.5 font-medium text-gray-600 dark:text-gray-300 text-left">
-                              {l.title}
-                            </th>
-                          ))}
-                          <th className="border border-gray-200 dark:border-gray-700 px-2 py-1.5 font-medium text-gray-600 dark:text-gray-300 text-left">削除</th>
+                          <th className="border border-gray-200 dark:border-gray-700 px-2 py-1.5 font-medium text-gray-600 dark:text-gray-300 text-left">
+                            読込
+                          </th>
+                          <th className="border border-gray-200 dark:border-gray-700 px-2 py-1.5 font-medium text-gray-600 dark:text-gray-300 text-left">
+                            ID
+                          </th>
+                          {layers
+                            .filter((l) => l.type === "text")
+                            .map((l) => (
+                              <th
+                                key={l.id}
+                                className="border border-gray-200 dark:border-gray-700 px-2 py-1.5 font-medium text-gray-600 dark:text-gray-300 text-left">
+                                {l.title}
+                              </th>
+                            ))}
+                          <th className="border border-gray-200 dark:border-gray-700 px-2 py-1.5 font-medium text-gray-600 dark:text-gray-300 text-left">
+                            削除
+                          </th>
                         </tr>
                       </thead>
                       <tbody>
                         {tableRows.map((row, rowIndex) => (
                           <tr key={row.id} className="hover:bg-gray-50">
                             <td className="border border-gray-200 dark:border-gray-700 px-1 py-1 text-center">
-                              <IconButton size="1" variant="ghost" onClick={() => loadCard(row)} aria-label="読み込み">
+                              <IconButton
+                                size="1"
+                                variant="ghost"
+                                onClick={() => loadCard(row)}
+                                aria-label="読み込み">
                                 <FilePen size={14} />
                               </IconButton>
                             </td>
                             <td className="border border-gray-200 dark:border-gray-700 px-2 py-1 font-mono text-gray-500 dark:text-gray-400">
                               #{row.id}
                             </td>
-                            {layers.filter((l) => l.type === "text").map((layer) => (
-                              <td key={layer.id} className="border border-gray-200 dark:border-gray-700 px-1 py-1">
-                                <input
-                                  type="text"
-                                  value={row.values[layer.title] || ""}
-                                  onChange={(e) => {
-                                    const updated = [...tableRows];
-                                    updated[rowIndex].values[layer.title] = e.target.value;
-                                    setTableRows(updated);
-                                  }}
-                                  className="w-full px-1 py-0.5 border border-transparent hover:border-gray-200 focus:border-indigo-300 rounded transition"
-                                />
-                              </td>
-                            ))}
+                            {layers
+                              .filter((l) => l.type === "text")
+                              .map((layer) => (
+                                <td
+                                  key={layer.id}
+                                  className="border border-gray-200 dark:border-gray-700 px-1 py-1">
+                                  <input
+                                    type="text"
+                                    value={row.values[layer.title] || ""}
+                                    onChange={(e) => {
+                                      const updated = [...tableRows];
+                                      updated[rowIndex].values[layer.title] =
+                                        e.target.value;
+                                      setTableRows(updated);
+                                    }}
+                                    className="w-full px-1 py-0.5 border border-transparent hover:border-gray-200 focus:border-indigo-300 rounded transition"
+                                  />
+                                </td>
+                              ))}
                             <td className="border border-gray-200 dark:border-gray-700 px-1 py-1 text-center">
                               <IconButton
-                                size="1" variant="ghost" color="red"
+                                size="1"
+                                variant="ghost"
+                                color="red"
                                 onClick={() =>
                                   askConfirm(
                                     "カードを削除",
-                                    `「${row.name ?? `カード#${row.id}`}」を一覧から削除します。この操作は取り消せません。`,
+                                    `「${
+                                      row.name ?? `カード#${row.id}`
+                                    }」を一覧から削除します。この操作は取り消せません。`,
                                     () => {
-                                      setTableRows((prev) => prev.filter((r) => r.id !== row.id));
+                                      setTableRows((prev) =>
+                                        prev.filter((r) => r.id !== row.id)
+                                      );
                                       showToast("カードを削除しました");
                                       trackEvent("card_deleted");
                                     }
@@ -1115,12 +1498,20 @@ export default function CardMaker() {
             </h3>
             <div className="flex gap-1">
               <Tooltip content="テキストを追加">
-                <IconButton size="1" variant="soft" onClick={addTextLayer} aria-label="テキスト追加">
+                <IconButton
+                  size="1"
+                  variant="soft"
+                  onClick={addTextLayer}
+                  aria-label="テキスト追加">
                   <Type size={12} />
                 </IconButton>
               </Tooltip>
               <Tooltip content="画像を追加">
-                <IconButton size="1" variant="soft" onClick={addImageLayer} aria-label="画像追加">
+                <IconButton
+                  size="1"
+                  variant="soft"
+                  onClick={addImageLayer}
+                  aria-label="画像追加">
                   <ImageIcon size={12} />
                 </IconButton>
               </Tooltip>
@@ -1146,27 +1537,42 @@ export default function CardMaker() {
                       <button
                         onClick={() => setSelectedLayerId(layer.id)}
                         className={`flex items-center gap-1.5 flex-1 text-left text-sm truncate ${
-                          selectedLayerId === layer.id ? "font-semibold text-indigo-600" : "text-gray-700 dark:text-gray-200"
+                          selectedLayerId === layer.id
+                            ? "font-semibold text-indigo-600"
+                            : "text-gray-700 dark:text-gray-200"
                         }`}>
-                        {layer.type === "text" ? <Type size={12} /> : <ImageIcon size={12} />}
+                        {layer.type === "text" ? (
+                          <Type size={12} />
+                        ) : (
+                          <ImageIcon size={12} />
+                        )}
                         <span className="truncate">{layer.title}</span>
                       </button>
                       <Switch
                         size="1"
                         checked={layer.visible}
                         onCheckedChange={(checked) =>
-                          setLayers((prev) => prev.map((l) => l.id === layer.id ? { ...l, visible: checked } : l))
+                          setLayers((prev) =>
+                            prev.map((l) =>
+                              l.id === layer.id ? { ...l, visible: checked } : l
+                            )
+                          )
                         }
                       />
                       <IconButton
-                        size="1" variant="ghost" color="red"
+                        size="1"
+                        variant="ghost"
+                        color="red"
                         onClick={() =>
                           askConfirm(
                             "レイヤーを削除",
                             `「${layer.title}」を削除します。この操作は取り消せません。`,
                             () => {
-                              setLayers((prev) => prev.filter((l) => l.id !== layer.id));
-                              if (selectedLayerId === layer.id) setSelectedLayerId(null);
+                              setLayers((prev) =>
+                                prev.filter((l) => l.id !== layer.id)
+                              );
+                              if (selectedLayerId === layer.id)
+                                setSelectedLayerId(null);
                               showToast(`「${layer.title}」を削除しました`);
                               trackEvent("layer_deleted", { type: layer.type });
                             }
@@ -1193,20 +1599,31 @@ export default function CardMaker() {
                   </h4>
                   <div className="flex gap-1">
                     <Tooltip content="スタイルをコピー">
-                      <Button size="1" variant="ghost" onClick={() => setCopiedStyle({ ...selectedLayer })}>
+                      <Button
+                        size="1"
+                        variant="ghost"
+                        onClick={() => setCopiedStyle({ ...selectedLayer })}>
                         コピー
                       </Button>
                     </Tooltip>
-                    <Tooltip content={copiedStyle ? "コピーしたスタイルを貼り付け" : "先にコピーしてください"}>
+                    <Tooltip
+                      content={
+                        copiedStyle
+                          ? "コピーしたスタイルを貼り付け"
+                          : "先にコピーしてください"
+                      }>
                       <Button
-                        size="1" variant="ghost"
+                        size="1"
+                        variant="ghost"
                         disabled={!copiedStyle}
-                        onClick={() => updateSelectedLayer({
-                          ...copiedStyle,
-                          id: selectedLayer.id,
-                          title: selectedLayer.title,
-                          value: selectedLayer.value,
-                        })}>
+                        onClick={() =>
+                          updateSelectedLayer({
+                            ...copiedStyle,
+                            id: selectedLayer.id,
+                            title: selectedLayer.title,
+                            value: selectedLayer.value,
+                          })
+                        }>
                         貼付
                       </Button>
                     </Tooltip>
@@ -1218,35 +1635,49 @@ export default function CardMaker() {
                   <Disclosure title="コンテンツ" defaultOpen>
                     <div className="space-y-2">
                       <div>
-                        <label className="text-xs text-gray-600 dark:text-gray-300 mb-1 block">名前</label>
+                        <label className="text-xs text-gray-600 dark:text-gray-300 mb-1 block">
+                          名前
+                        </label>
                         <input
                           type="text"
                           value={selectedLayer.title}
-                          onChange={(e) => updateSelectedLayer({ title: e.target.value })}
+                          onChange={(e) =>
+                            updateSelectedLayer({ title: e.target.value })
+                          }
                           className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-400"
                         />
                       </div>
                       {selectedLayer.type === "text" && (
                         <div>
-                          <label className="text-xs text-gray-600 dark:text-gray-300 mb-1 block">テキスト</label>
+                          <label className="text-xs text-gray-600 dark:text-gray-300 mb-1 block">
+                            テキスト
+                          </label>
                           <TextArea
                             placeholder="テキストを入力…"
                             value={selectedLayer.value}
-                            onChange={(e) => updateSelectedLayer({ value: e.target.value })}
+                            onChange={(e) =>
+                              updateSelectedLayer({ value: e.target.value })
+                            }
                             rows={3}
                           />
                         </div>
                       )}
                       {selectedLayer.type === "image" && (
                         <div>
-                          <label className="text-xs text-gray-600 dark:text-gray-300 mb-1 block">画像</label>
+                          <label className="text-xs text-gray-600 dark:text-gray-300 mb-1 block">
+                            画像
+                          </label>
                           <input
-                            type="file" accept="image/*"
+                            type="file"
+                            accept="image/*"
                             onChange={(e) => {
                               const file = e.target.files?.[0];
                               if (!file) return;
                               const reader = new FileReader();
-                              reader.onload = () => updateSelectedLayer({ value: reader.result as string });
+                              reader.onload = () =>
+                                updateSelectedLayer({
+                                  value: reader.result as string,
+                                });
                               reader.readAsDataURL(file);
                             }}
                             className="text-xs file:mr-2 file:py-1 file:px-2 file:rounded file:border-0 file:bg-gray-100 file:text-gray-700 hover:file:bg-gray-200 file:cursor-pointer"
@@ -1260,40 +1691,91 @@ export default function CardMaker() {
                   <Disclosure title="配置">
                     <div className="space-y-2">
                       <div>
-                        <label className="text-xs text-gray-600 dark:text-gray-300 mb-1 block">基準位置</label>
+                        <label className="text-xs text-gray-600 dark:text-gray-300 mb-1 block">
+                          基準位置
+                        </label>
                         <div className="grid grid-cols-3 gap-1">
                           {POSITION_PRESETS.map((pos) => (
                             <button
                               key={pos}
-                              onClick={() => updateSelectedLayer({ PositionPreset: pos })}
+                              onClick={() =>
+                                updateSelectedLayer({ PositionPreset: pos })
+                              }
                               className={`h-8 rounded border transition ${
                                 selectedLayer.PositionPreset === pos
                                   ? "bg-indigo-500 border-indigo-500"
                                   : "bg-white dark:bg-gray-900 border-gray-300 dark:border-gray-600 hover:border-gray-400"
                               }`}
-                              aria-label={pos}
-                            >
-                              <span className={`block w-1.5 h-1.5 rounded-full mx-auto ${
-                                selectedLayer.PositionPreset === pos ? "bg-white dark:bg-gray-900" : "bg-gray-400"
-                              }`} />
+                              aria-label={pos}>
+                              <span
+                                className={`block w-1.5 h-1.5 rounded-full mx-auto ${
+                                  selectedLayer.PositionPreset === pos
+                                    ? "bg-white dark:bg-gray-900"
+                                    : "bg-gray-400"
+                                }`}
+                              />
                             </button>
                           ))}
                         </div>
                       </div>
                       <div className="grid grid-cols-2 gap-2">
                         <NumberField
-                          label="位置X調整" unit="px" value={selectedLayer.positionAdjX}
-                          onChange={(n) => updateSelectedLayer({ positionAdjX: n })}
+                          label="位置X調整"
+                          unit="px"
+                          value={selectedLayer.positionAdjX}
+                          onChange={(n) =>
+                            updateSelectedLayer({ positionAdjX: n })
+                          }
                         />
                         <NumberField
-                          label="位置Y調整" unit="px" value={selectedLayer.positionAdjY}
-                          onChange={(n) => updateSelectedLayer({ positionAdjY: n })}
+                          label="位置Y調整"
+                          unit="px"
+                          value={selectedLayer.positionAdjY}
+                          onChange={(n) =>
+                            updateSelectedLayer({ positionAdjY: n })
+                          }
                         />
                       </div>
                     </div>
                   </Disclosure>
 
                   {/* 効果（角度 / ドロップシャドウ） */}
+                  {/* Unity 書き出し時にこのレイヤーをどう扱うか */}
+                  <Disclosure title="Unity 書き出し">
+                    <div className="space-y-2">
+                      <p className="text-[11px] text-gray-500 dark:text-gray-400">
+                        Unity上でこのレイヤーをどう扱うかを選びます。 ボタンは
+                        Canvas 配下の UI ボタン（Image + Button）になります。
+                      </p>
+                      <div className="grid grid-cols-1 gap-1">
+                        {(selectedLayer.type === "image"
+                          ? UNITY_COMPONENTS_FOR_IMAGE
+                          : UNITY_COMPONENTS_FOR_TEXT
+                        ).map((opt) => (
+                          <button
+                            key={opt.value}
+                            type="button"
+                            onClick={() => {
+                              updateSelectedLayer({
+                                unityComponent: opt.value,
+                              });
+                              trackEvent("unity_component_set", {
+                                kind: opt.value,
+                              });
+                            }}
+                            className={`text-xs py-1.5 px-2 rounded border text-left transition ${
+                              (selectedLayer.unityComponent ?? "auto") ===
+                              opt.value
+                                ? "bg-indigo-500 text-white border-indigo-500"
+                                : "bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700"
+                            }`}>
+                            {opt.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </Disclosure>
+
                   <Disclosure title="効果">
                     <div className="space-y-3">
                       {/* 角度 */}
@@ -1311,14 +1793,20 @@ export default function CardMaker() {
                         </div>
                         <Slider
                           value={[selectedLayer.rotation ?? 0]}
-                          min={-180} max={180} step={1}
-                          onValueChange={([val]) => updateSelectedLayer({ rotation: val })}
+                          min={-180}
+                          max={180}
+                          step={1}
+                          onValueChange={([val]) =>
+                            updateSelectedLayer({ rotation: val })
+                          }
                         />
                         <div className="flex gap-1 mt-1.5">
                           {[-90, -45, 0, 45, 90].map((deg) => (
                             <button
                               key={deg}
-                              onClick={() => updateSelectedLayer({ rotation: deg })}
+                              onClick={() =>
+                                updateSelectedLayer({ rotation: deg })
+                              }
                               className={`flex-1 text-[10px] py-1 rounded border transition ${
                                 (selectedLayer.rotation ?? 0) === deg
                                   ? "bg-indigo-50 border-indigo-300 text-indigo-700"
@@ -1336,7 +1824,9 @@ export default function CardMaker() {
                           <Switch
                             size="1"
                             checked={selectedLayer.shadowEnabled ?? false}
-                            onCheckedChange={(checked) => updateSelectedLayer({ shadowEnabled: checked })}
+                            onCheckedChange={(checked) =>
+                              updateSelectedLayer({ shadowEnabled: checked })
+                            }
                           />
                           ドロップシャドウ
                         </label>
@@ -1345,18 +1835,26 @@ export default function CardMaker() {
                             <ColorSwatch
                               label="影の色"
                               value={selectedLayer.shadowColor ?? "#000000"}
-                              onChange={(c) => updateSelectedLayer({ shadowColor: c as Color })}
+                              onChange={(c) =>
+                                updateSelectedLayer({ shadowColor: c as Color })
+                              }
                             />
                             <div className="grid grid-cols-2 gap-2">
                               <NumberField
-                                label="X方向" unit="px"
+                                label="X方向"
+                                unit="px"
                                 value={selectedLayer.shadowOffsetX ?? 2}
-                                onChange={(n) => updateSelectedLayer({ shadowOffsetX: n })}
+                                onChange={(n) =>
+                                  updateSelectedLayer({ shadowOffsetX: n })
+                                }
                               />
                               <NumberField
-                                label="Y方向" unit="px"
+                                label="Y方向"
+                                unit="px"
                                 value={selectedLayer.shadowOffsetY ?? 2}
-                                onChange={(n) => updateSelectedLayer({ shadowOffsetY: n })}
+                                onChange={(n) =>
+                                  updateSelectedLayer({ shadowOffsetY: n })
+                                }
                               />
                             </div>
                             <div>
@@ -1365,18 +1863,34 @@ export default function CardMaker() {
                               </label>
                               <Slider
                                 value={[selectedLayer.shadowBlur ?? 4]}
-                                min={0} max={50} step={1}
-                                onValueChange={([val]) => updateSelectedLayer({ shadowBlur: val })}
+                                min={0}
+                                max={50}
+                                step={1}
+                                onValueChange={([val]) =>
+                                  updateSelectedLayer({ shadowBlur: val })
+                                }
                               />
                             </div>
                             <div>
                               <label className="text-xs text-gray-600 dark:text-gray-300 mb-1 block">
-                                不透明度: {Math.round((selectedLayer.shadowOpacity ?? 0.5) * 100)}%
+                                不透明度:{" "}
+                                {Math.round(
+                                  (selectedLayer.shadowOpacity ?? 0.5) * 100
+                                )}
+                                %
                               </label>
                               <Slider
-                                value={[(selectedLayer.shadowOpacity ?? 0.5) * 100]}
-                                min={0} max={100} step={1}
-                                onValueChange={([val]) => updateSelectedLayer({ shadowOpacity: val / 100 })}
+                                value={[
+                                  (selectedLayer.shadowOpacity ?? 0.5) * 100,
+                                ]}
+                                min={0}
+                                max={100}
+                                step={1}
+                                onValueChange={([val]) =>
+                                  updateSelectedLayer({
+                                    shadowOpacity: val / 100,
+                                  })
+                                }
                               />
                             </div>
                           </div>
@@ -1394,15 +1908,24 @@ export default function CardMaker() {
                             サイズ: {selectedLayer.fontSize}px
                           </label>
                           <Slider
-                            value={[selectedLayer.fontSize]} min={8} max={120} step={1}
-                            onValueChange={([val]) => updateSelectedLayer({ fontSize: val })}
+                            value={[selectedLayer.fontSize]}
+                            min={8}
+                            max={120}
+                            step={1}
+                            onValueChange={([val]) =>
+                              updateSelectedLayer({ fontSize: val })
+                            }
                           />
                         </div>
                         <div className="grid grid-cols-2 gap-2">
                           <div className="col-span-2">
-                            <label className="text-xs text-gray-600 dark:text-gray-300 mb-1 block">書体</label>
+                            <label className="text-xs text-gray-600 dark:text-gray-300 mb-1 block">
+                              書体
+                            </label>
                             <Select.Root
-                              value={selectedLayer.fontFamily ?? DEFAULT_FONT_ID}
+                              value={
+                                selectedLayer.fontFamily ?? DEFAULT_FONT_ID
+                              }
                               onValueChange={(val) => {
                                 updateSelectedLayer({ fontFamily: val });
                                 trackEvent("font_changed", { font_id: val });
@@ -1411,17 +1934,25 @@ export default function CardMaker() {
                               <Select.Content>
                                 {FONT_PRESETS.map((f) => (
                                   <Select.Item key={f.id} value={f.id}>
-                                    <span style={{ fontFamily: f.family }}>{f.label}</span>
+                                    <span style={{ fontFamily: f.family }}>
+                                      {f.label}
+                                    </span>
                                   </Select.Item>
                                 ))}
                               </Select.Content>
                             </Select.Root>
                           </div>
                           <div>
-                            <label className="text-xs text-gray-600 dark:text-gray-300 mb-1 block">ウェイト</label>
+                            <label className="text-xs text-gray-600 dark:text-gray-300 mb-1 block">
+                              ウェイト
+                            </label>
                             <Select.Root
                               value={selectedLayer.fontStyle}
-                              onValueChange={(val) => updateSelectedLayer({ fontStyle: val as Layer["fontStyle"] })}>
+                              onValueChange={(val) =>
+                                updateSelectedLayer({
+                                  fontStyle: val as Layer["fontStyle"],
+                                })
+                              }>
                               <Select.Trigger className="w-full" />
                               <Select.Content>
                                 <Select.Item value="thin">Thin</Select.Item>
@@ -1431,10 +1962,16 @@ export default function CardMaker() {
                             </Select.Root>
                           </div>
                           <div>
-                            <label className="text-xs text-gray-600 dark:text-gray-300 mb-1 block">揃え</label>
+                            <label className="text-xs text-gray-600 dark:text-gray-300 mb-1 block">
+                              揃え
+                            </label>
                             <Select.Root
                               value={selectedLayer.textAlign}
-                              onValueChange={(val) => updateSelectedLayer({ textAlign: val as "left" | "center" | "right" })}>
+                              onValueChange={(val) =>
+                                updateSelectedLayer({
+                                  textAlign: val as "left" | "center" | "right",
+                                })
+                              }>
                               <Select.Trigger className="w-full" />
                               <Select.Content>
                                 <Select.Item value="left">左揃え</Select.Item>
@@ -1446,12 +1983,18 @@ export default function CardMaker() {
                         </div>
                         <div className="flex items-center gap-4">
                           <ColorSwatch
-                            label="文字色" value={selectedLayer.fontColor}
-                            onChange={(c) => updateSelectedLayer({ fontColor: c as Color })}
+                            label="文字色"
+                            value={selectedLayer.fontColor}
+                            onChange={(c) =>
+                              updateSelectedLayer({ fontColor: c as Color })
+                            }
                           />
                           <ColorSwatch
-                            label="縁取り" value={selectedLayer.fontOutline}
-                            onChange={(c) => updateSelectedLayer({ fontOutline: c as Color })}
+                            label="縁取り"
+                            value={selectedLayer.fontOutline}
+                            onChange={(c) =>
+                              updateSelectedLayer({ fontOutline: c as Color })
+                            }
                           />
                         </div>
                       </div>
@@ -1466,23 +2009,34 @@ export default function CardMaker() {
                           <Switch
                             size="1"
                             checked={selectedLayer.backGround}
-                            onCheckedChange={(checked) => updateSelectedLayer({ backGround: checked })}
+                            onCheckedChange={(checked) =>
+                              updateSelectedLayer({ backGround: checked })
+                            }
                           />
                           背景を有効化
                         </label>
                         {selectedLayer.backGround && (
                           <>
                             <ColorSwatch
-                              label="背景色" value={selectedLayer.bgColor}
-                              onChange={(c) => updateSelectedLayer({ bgColor: c as Color })}
+                              label="背景色"
+                              value={selectedLayer.bgColor}
+                              onChange={(c) =>
+                                updateSelectedLayer({ bgColor: c as Color })
+                              }
                             />
                             <div>
                               <label className="text-xs text-gray-600 dark:text-gray-300 mb-1 block">
-                                不透明度: {Math.round(selectedLayer.bgOpacity * 100)}%
+                                不透明度:{" "}
+                                {Math.round(selectedLayer.bgOpacity * 100)}%
                               </label>
                               <Slider
-                                value={[selectedLayer.bgOpacity * 100]} min={0} max={100} step={1}
-                                onValueChange={([val]) => updateSelectedLayer({ bgOpacity: val / 100 })}
+                                value={[selectedLayer.bgOpacity * 100]}
+                                min={0}
+                                max={100}
+                                step={1}
+                                onValueChange={([val]) =>
+                                  updateSelectedLayer({ bgOpacity: val / 100 })
+                                }
                               />
                             </div>
                             <div>
@@ -1490,8 +2044,13 @@ export default function CardMaker() {
                                 角丸: {selectedLayer.bgRadius}px
                               </label>
                               <Slider
-                                value={[selectedLayer.bgRadius]} min={0} max={32} step={1}
-                                onValueChange={([val]) => updateSelectedLayer({ bgRadius: val })}
+                                value={[selectedLayer.bgRadius]}
+                                min={0}
+                                max={32}
+                                step={1}
+                                onValueChange={([val]) =>
+                                  updateSelectedLayer({ bgRadius: val })
+                                }
                               />
                             </div>
                             <div>
@@ -1499,8 +2058,13 @@ export default function CardMaker() {
                                 余白: {selectedLayer.textPadding}px
                               </label>
                               <Slider
-                                value={[selectedLayer.textPadding]} min={0} max={40} step={1}
-                                onValueChange={([val]) => updateSelectedLayer({ textPadding: val })}
+                                value={[selectedLayer.textPadding]}
+                                min={0}
+                                max={40}
+                                step={1}
+                                onValueChange={([val]) =>
+                                  updateSelectedLayer({ textPadding: val })
+                                }
                               />
                             </div>
 
@@ -1514,9 +2078,11 @@ export default function CardMaker() {
                                 onCheckedChange={(checked) =>
                                   updateSelectedLayer({
                                     bevelEnabled: checked,
-                                    bevelStyle: selectedLayer.bevelStyle ?? "raised",
+                                    bevelStyle:
+                                      selectedLayer.bevelStyle ?? "raised",
                                     bevelSize: selectedLayer.bevelSize ?? 4,
-                                    bevelIntensity: selectedLayer.bevelIntensity ?? 0.6,
+                                    bevelIntensity:
+                                      selectedLayer.bevelIntensity ?? 0.6,
                                   })
                                 }
                               />
@@ -1526,37 +2092,65 @@ export default function CardMaker() {
                             {selectedLayer.bevelEnabled && (
                               <>
                                 <div className="grid grid-cols-2 gap-1">
-                                  {(["raised", "inset"] as const).map((style) => (
-                                    <button
-                                      key={style}
-                                      type="button"
-                                      onClick={() => updateSelectedLayer({ bevelStyle: style })}
-                                      className={`text-xs py-1.5 rounded border transition ${
-                                        (selectedLayer.bevelStyle ?? "raised") === style
-                                          ? "bg-indigo-500 text-white border-indigo-500"
-                                          : "bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700"
-                                      }`}>
-                                      {style === "raised" ? "凸（盛り上げ）" : "凹（彫り込み）"}
-                                    </button>
-                                  ))}
+                                  {(["raised", "inset"] as const).map(
+                                    (style) => (
+                                      <button
+                                        key={style}
+                                        type="button"
+                                        onClick={() =>
+                                          updateSelectedLayer({
+                                            bevelStyle: style,
+                                          })
+                                        }
+                                        className={`text-xs py-1.5 rounded border transition ${
+                                          (selectedLayer.bevelStyle ??
+                                            "raised") === style
+                                            ? "bg-indigo-500 text-white border-indigo-500"
+                                            : "bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700"
+                                        }`}>
+                                        {style === "raised"
+                                          ? "凸（盛り上げ）"
+                                          : "凹（彫り込み）"}
+                                      </button>
+                                    )
+                                  )}
                                 </div>
                                 <div>
                                   <label className="text-xs text-gray-600 dark:text-gray-300 mb-1 block">
                                     太さ: {selectedLayer.bevelSize ?? 4}px
                                   </label>
                                   <Slider
-                                    value={[selectedLayer.bevelSize ?? 4]} min={1} max={16} step={1}
-                                    onValueChange={([val]) => updateSelectedLayer({ bevelSize: val })}
+                                    value={[selectedLayer.bevelSize ?? 4]}
+                                    min={1}
+                                    max={16}
+                                    step={1}
+                                    onValueChange={([val]) =>
+                                      updateSelectedLayer({ bevelSize: val })
+                                    }
                                   />
                                 </div>
                                 <div>
                                   <label className="text-xs text-gray-600 dark:text-gray-300 mb-1 block">
-                                    強さ: {Math.round((selectedLayer.bevelIntensity ?? 0.6) * 100)}%
+                                    強さ:{" "}
+                                    {Math.round(
+                                      (selectedLayer.bevelIntensity ?? 0.6) *
+                                        100
+                                    )}
+                                    %
                                   </label>
                                   <Slider
-                                    value={[(selectedLayer.bevelIntensity ?? 0.6) * 100]}
-                                    min={0} max={100} step={5}
-                                    onValueChange={([val]) => updateSelectedLayer({ bevelIntensity: val / 100 })}
+                                    value={[
+                                      (selectedLayer.bevelIntensity ?? 0.6) *
+                                        100,
+                                    ]}
+                                    min={0}
+                                    max={100}
+                                    step={5}
+                                    onValueChange={([val]) =>
+                                      updateSelectedLayer({
+                                        bevelIntensity: val / 100,
+                                      })
+                                    }
                                   />
                                 </div>
                               </>
@@ -1573,25 +2167,41 @@ export default function CardMaker() {
                       <div className="space-y-2">
                         <div className="grid grid-cols-2 gap-2">
                           <NumberField
-                            label="幅" unit="%" value={selectedLayer.imageWidth ?? 100}
-                            onChange={(n) => updateSelectedLayer({ imageWidth: n })}
+                            label="幅"
+                            unit="%"
+                            value={selectedLayer.imageWidth ?? 100}
+                            onChange={(n) =>
+                              updateSelectedLayer({ imageWidth: n })
+                            }
                           />
                           <NumberField
-                            label="高さ" unit="%" value={selectedLayer.imageHeight ?? 100}
-                            onChange={(n) => updateSelectedLayer({ imageHeight: n })}
+                            label="高さ"
+                            unit="%"
+                            value={selectedLayer.imageHeight ?? 100}
+                            onChange={(n) =>
+                              updateSelectedLayer({ imageHeight: n })
+                            }
                           />
                         </div>
                         <NumberField
-                          label="角丸" unit="px" value={selectedLayer.bgRadius}
+                          label="角丸"
+                          unit="px"
+                          value={selectedLayer.bgRadius}
                           onChange={(n) => updateSelectedLayer({ bgRadius: n })}
                         />
                         <div>
                           <label className="text-xs text-gray-600 dark:text-gray-300 mb-1 block">
-                            不透明度: {Math.round((selectedLayer.opacity ?? 1) * 100)}%
+                            不透明度:{" "}
+                            {Math.round((selectedLayer.opacity ?? 1) * 100)}%
                           </label>
                           <Slider
-                            value={[(selectedLayer.opacity ?? 1) * 100]} min={0} max={100} step={1}
-                            onValueChange={([val]) => updateSelectedLayer({ opacity: val / 100 })}
+                            value={[(selectedLayer.opacity ?? 1) * 100]}
+                            min={0}
+                            max={100}
+                            step={1}
+                            onValueChange={([val]) =>
+                              updateSelectedLayer({ opacity: val / 100 })
+                            }
                           />
                         </div>
                       </div>
