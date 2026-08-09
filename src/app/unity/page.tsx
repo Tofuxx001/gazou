@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Image from "next/image";
+import Link from "next/link";
 import logoPng from "../../assets/proxyz-logo.png";
 
 export const metadata: Metadata = {
@@ -45,7 +46,7 @@ export default function UnityManualPage() {
   return (
     <>
       <header className="w-full h-20 bg-white dark:bg-gray-900 px-8 flex items-center justify-between shadow-md">
-        <a href="/" className="flex items-center space-x-4">
+        <Link href="/" className="flex items-center space-x-4">
           <Image src={logoPng} alt="Proxyz" className="h-16 w-16" />
           <div>
             <h1 className="text-xl font-bold text-gray-800 dark:text-gray-100">
@@ -55,12 +56,12 @@ export default function UnityManualPage() {
               Unity書き出しマニュアル
             </p>
           </div>
-        </a>
-        <a
+        </Link>
+        <Link
           href="/"
           className="text-sm text-indigo-600 hover:underline font-medium">
           ← エディタに戻る
-        </a>
+        </Link>
       </header>
 
       <main className="max-w-3xl mx-auto px-6 py-10">
@@ -424,11 +425,11 @@ export default function UnityManualPage() {
         </Section>
 
         <div className="mt-12 text-center">
-          <a
+          <Link
             href="/"
             className="inline-block bg-indigo-500 hover:bg-indigo-600 text-white font-medium px-6 py-3 rounded-md transition">
             エディタに戻ってカードを作る
-          </a>
+          </Link>
         </div>
       </main>
 

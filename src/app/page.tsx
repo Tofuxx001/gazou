@@ -1,5 +1,6 @@
 "use client";
 import { useEffect } from "react";
+import Link from "next/link";
 import { AdMaxSlot } from "./_components/AdMaxSlot";
 import Image from "next/image";
 import CardMaker from "./_components/CardMaker";
@@ -41,7 +42,7 @@ export default function Home() {
               プロキシーズ
             </h1>
             <p className="text-sm text-gray-600 dark:text-gray-300">
-              ボドゲ・TCGプロキシ作成ツール（by SynapStudio） ver.02
+              ボドゲ・TCGプロキシ作成ツール（by SynapStudio） ver.035Unite
             </p>
           </div>
         </div>
@@ -169,11 +170,11 @@ export default function Home() {
               🧊 <strong>Unity Prefab書き出し</strong>
               （NEW!）。カード一覧をまるごとUnityに取り込めます。 レイヤーを
               <strong>UIボタン化</strong>する指定も可能。詳しくは
-              <a
+              <Link
                 href="/unity"
                 className="text-indigo-600 font-medium hover:underline mx-1">
                 Unity書き出しマニュアル
-              </a>
+              </Link>
               へ
             </li>
             <li>
@@ -334,11 +335,11 @@ export default function Home() {
             <li>自動保存をリセットしたい場合はカード一覧の「リセット」から</li>
             <li>
               カードをUnityのPrefabとして取り込めます。手順は
-              <a
+              <Link
                 href="/unity"
                 className="text-indigo-600 font-medium hover:underline mx-1">
                 Unity書き出しマニュアル
-              </a>
+              </Link>
               を参照
             </li>
           </ul>
